@@ -63,6 +63,10 @@
       <div id="limitup-day-content"></div>
     </div>
     <div class="chart-box">
+      <h3>概念聚合（力导向图）</h3>
+      <div id="chart-concept-graph" class="chart-container" style="height:500px"></div>
+    </div>
+    <div class="chart-box">
       <h3>连板高度时序</h3>
       <div id="chart-limitup" class="chart-container" style="height:200px"></div>
     </div>
@@ -139,6 +143,44 @@
     </div>
   </section>
 </main>
+
+<!-- 浮动聊天按钮 -->
+<button id="chat-fab" class="chat-fab" title="AI 助手" aria-label="打开 AI 助手">
+  <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+    <path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/>
+  </svg>
+</button>
+
+<!-- 侧边栏抽屉 -->
+<aside id="chat-panel" class="chat-panel hidden">
+  <div class="chat-panel-header">
+    <div class="chat-panel-title">
+      <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+        <path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/>
+      </svg>
+      <span>AI 助手</span>
+    </div>
+    <div class="chat-panel-controls">
+      <select id="chat-agent-select" class="chat-agent-select" title="切换 AI 引擎">
+        <option value="claude">Claude Code</option>
+        <option value="hermes">Hermes Agent</option>
+      </select>
+      <button id="chat-close-btn" class="chat-close-btn" title="关闭侧边栏">✕</button>
+    </div>
+  </div>
+
+  <div id="chat-messages" class="chat-messages">
+    <div class="chat-welcome">
+      <p>选择 AI 引擎后输入问题，开始信息搜寻。</p>
+      <p class="text-muted">当前上下文会自动注入，让 AI 了解你正在查看的内容。</p>
+    </div>
+  </div>
+
+  <div class="chat-input-area">
+    <input type="text" id="chat-input" class="chat-input" placeholder="输入问题…" />
+    <button id="chat-send-btn" class="chat-send-btn" disabled>发送</button>
+  </div>
+</aside>
 
 <script src="https://cdn.jsdelivr.net/npm/echarts@5.6.0/dist/echarts.min.js"></script>
 <script src="static/app.js"></script>

@@ -16,7 +16,7 @@ import webbrowser
 from pathlib import Path
 
 import uvicorn
-from fastapi import FastAPI, HTTPException
+from fastapi import FastAPI, HTTPException, WebSocket
 from fastapi.responses import FileResponse
 from fastapi.staticfiles import StaticFiles
 
@@ -490,6 +490,13 @@ def _build_app(report_dir: Path, db: sqlite3.Connection | None,
             StaticFiles(directory=str(data_dir)),
             name="data",
         )
+
+    # --- AI Agent 对话 WebSocket ---
+    from market_research.chat_worker import chat_endpoint_handler
+
+    @app.websocket("/api/chat/ws")
+    async def ws_chat(websocket: WebSocket):
+        await chat_endpoint_handler(websocket)
 
     @app.get("/")
     async def index() -> FileResponse:

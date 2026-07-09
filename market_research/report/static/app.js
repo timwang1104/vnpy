@@ -50,6 +50,7 @@
     industry: null,      // industry.json data
     limitup: null,       // limitup_main.json data
     calendar: null,      // calendar.json data
+    conceptGraph: null,  // concept_graph.json data
     limitupDate: null,   // current selected limitup date
     ffIndustryCode: null,// current fundflow industry code
     // echarts instances
@@ -59,6 +60,7 @@
     rankChart: null,
     ltChart: null,
     fundflowChart: null,
+    conceptChart: null,  // concept force-directed graph
     // simulator state
     simStrategies: [],   // strategy list from API
     simChart: null,      // equity curve echarts
@@ -67,6 +69,14 @@
     anomalyThreshold: 2.0,
     anomalyData: null,
     _anomalyDebounce: null,
+    // chat state
+    chatOpen: false,
+    chatWs: null,
+    chatAgent: 'claude',
+    chatSessionId: null,   // {claude: "xxx", hermes: "yyy"}
+    chatMessages: [],
+    chatWaiting: false,
+    chatContext: {},
   };
 
   // ==================== 路由 ====================
@@ -84,10 +94,12 @@
     }
     // resize charts on tab switch
     setTimeout(() => {
-      ['heatChart','icChart','quintChart','rankChart','ltChart','fundflowChart','simChart'].forEach(k => {
+      ['heatChart','icChart','quintChart','rankChart','ltChart','fundflowChart','simChart','conceptChart'].forEach(k => {
         if (STATE[k]) STATE[k].resize();
       });
     }, 50);
+      // update chat context when tab changes
+      if (typeof updateChatContext === 'function') updateChatContext();
   }
 
   window.addEventListener('hashchange', () => activateTab(location.hash));
@@ -111,6 +123,8 @@
     bar.innerHTML = items.map(it =>
       `<div class="ov-item"><div class="ov-label">${it.label}</div><div class="ov-value ${it.cls||''}">${it.value}</div></div>`
     ).join('');
+    // update chat context when overview loads
+    if (typeof updateChatContext === 'function') updateChatContext();
   }
 
   // ==================== Tab1: 行业资金流 ====================
@@ -357,10 +371,10 @@
     if (!data || !calendar) return;
     renderDatePicker(calendar, selectedDate);
     if (data.by_date && data.by_date[selectedDate]) {
-      renderLimitupDay(data.by_date[selectedDate]);
+      renderLimitupDay(data.by_date[selectedDate], selectedDate);
     } else {
       loadJson('data/limitup/' + selectedDate + '.json')
-        .then(dayData => renderLimitupDay(dayData))
+        .then(dayData => renderLimitupDay(dayData, selectedDate))
         .catch(() => {
           document.getElementById('limitup-day-content').innerHTML =
             '<p style="color:var(--text-secondary)">该日无涨停数据</p>';
@@ -474,18 +488,19 @@
   function selectLimitupDate(d) {
     STATE.limitupDate = d;
     renderLimitupTab(STATE.limitup, STATE.calendar, d);
+    if (typeof updateChatContext === 'function') updateChatContext();
   }
 
-  function renderLimitupDay(dayData) {
+  function renderLimitupDay(dayData, selectedDate) {
     const container = document.getElementById('limitup-day-content');
     if (!dayData || !dayData.tables) {
       container.innerHTML = '<p style="color:var(--text-secondary)">无数据</p>';
+      renderConceptGraph(null);
       return;
     }
 
     const kpi = dayData.kpi || {};
     const tiers = (dayData.tables.tiers || []).slice(0, 10); // top 10 tiers
-    const indConcentration = (dayData.series && dayData.series.industry_concentration) || [];
 
     let html = '<div class="kpi-row">';
     html += `<span>涨停 ${kpi.limit_up_cnt} 炸板 ${kpi.limit_break_cnt} 跌停 ${kpi.limit_down_cnt} 最高板 ${kpi.max_limit_times}</span>`;
@@ -505,17 +520,10 @@
       html += '</tbody></table>';
     }
 
-    // industry concentration
-    if (indConcentration.length) {
-      html += '<h3 style="margin:16px 0 8px">行业聚集</h3>';
-      html += '<table class="data-table"><thead><tr><th>行业</th><th>涨停数</th></tr></thead><tbody>';
-      for (const ind of indConcentration.slice(0, 10)) {
-        html += `<tr><td>${ind.industry}</td><td>${ind.count}</td></tr>`;
-      }
-      html += '</tbody></table>';
-    }
-
     container.innerHTML = html;
+
+    // render concept graph (replaces industry concentration)
+    renderConceptGraph(selectedDate);
   }
 
   function renderLimitupChart(data) {
@@ -559,6 +567,217 @@
         symbol: 'none', areaStyle: { color: C('--accent-red'), opacity: 0.08 }
       }]
     }, true);
+  }
+
+  // ==================== 概念力导向图 ====================
+
+  function renderConceptGraph(selectedDate) {
+    const el = document.getElementById('chart-concept-graph');
+    if (!el) return;
+    if (!selectedDate) {
+      if (STATE.conceptChart) STATE.conceptChart.clear();
+      return;
+    }
+
+    // 加载 concept_graph.json
+    loadJson('data/concept_graph.json')
+      .then(conceptData => {
+        if (!conceptData || !conceptData.concepts || !conceptData.concepts.length) {
+          el.innerHTML = '<p style="color:var(--text-secondary);text-align:center;padding:40px">当日无概念聚合数据</p>';
+          return;
+        }
+
+        // 构建 ECharts 力导向图数据
+        var nodes = [];
+        var links = [];
+        var categories = [];
+
+        // 概念节点
+        var concepts = conceptData.concepts || [];
+        var hasThemes = (conceptData.themes || []).length > 0;
+
+        categories.push({ name: '概念' });
+        categories.push({ name: '主题' });
+        categories.push({ name: '涨停标的' });
+
+        for (var ci = 0; ci < concepts.length; ci++) {
+          var c = concepts[ci];
+          var nodeSize = Math.max(20, c.heat * 60);
+          nodes.push({
+            name: c.name,
+            value: c.heat,
+            symbolSize: nodeSize,
+            category: 0,
+            itemStyle: { color: interp(C('--div-pos-soft'), C('--div-pos'), c.heat) },
+            label: { show: true, fontSize: Math.max(10, nodeSize * 0.3), fontWeight: 'bold' },
+            _type: 'concept',
+            _heat: c.heat,
+            _member_count: c.member_count,
+            _members: c.members,
+          });
+
+          // 连线：概念 → 标的
+          if (c.members) {
+            for (var mi = 0; mi < c.members.length; mi++) {
+              var m = c.members[mi];
+              var stockNodeId = m.ts_code;
+              // 检查股票节点是否已添加
+              if (!nodes.some(function(n) { return n.name === stockNodeId; })) {
+                var stockSize = Math.min(15 + m.limit_times * 3, 30);
+                var stockColor = m.limit_times >= 3 ? C('--accent-red') : C('--text-secondary');
+                nodes.push({
+                  name: stockNodeId,
+                  value: m.limit_times,
+                  symbolSize: stockSize,
+                  category: 2,
+                  itemStyle: { color: stockColor },
+                  label: { show: true, fontSize: 10, formatter: m.name },
+                  _type: 'stock',
+                  _name: m.name,
+                  _limit_times: m.limit_times,
+                  _fd_amount: m.fd_amount,
+                  _first_time: m.first_time,
+                  _industry: m.industry,
+                });
+              }
+              links.push({
+                source: c.name,
+                target: stockNodeId,
+                value: 1,
+                lineStyle: { width: 1, opacity: 0.25, color: '#888' },
+              });
+            }
+          }
+        }
+
+        // 主题节点（如有）
+        var themes = conceptData.themes || [];
+        for (var ti = 0; ti < themes.length; ti++) {
+          var t = themes[ti];
+          var tSize = Math.max(24, t.heat * 70);
+          nodes.push({
+            name: t.name,
+            value: t.heat,
+            symbolSize: tSize,
+            category: 1,
+            itemStyle: { color: C('--s2') },
+            label: { show: true, fontSize: Math.max(11, tSize * 0.28), fontWeight: 'bold' },
+            _type: 'theme',
+            _heat: t.heat,
+            _description: t.description,
+            _member_count: t.member_count,
+          });
+
+          // 连线：主题 → 下级概念
+          if (t.sub_concepts) {
+            for (var si = 0; si < t.sub_concepts.length; si++) {
+              // sub_concepts 可能为 theme 模式下的概念名
+              links.push({
+                source: t.name,
+                target: t.sub_concepts[si],
+                value: 1,
+                lineStyle: { width: 2, opacity: 0.4, color: C('--s2'), curveness: 0.3 },
+              });
+            }
+          }
+        }
+
+        // 额外链接（concept_graph.json 中的 links）
+        var extraLinks = conceptData.links || [];
+        for (var li = 0; li < extraLinks.length; li++) {
+          var ek = extraLinks[li];
+          links.push({
+            source: ek.source,
+            target: ek.target,
+            value: 1,
+            lineStyle: { width: 1, opacity: 0.2, color: '#888' },
+          });
+        }
+
+        var option = {
+          backgroundColor: 'transparent',
+          title: {
+            text: hasThemes ? '概念主题力导向图' : '概念力导向图',
+            textStyle: { color: C('--text-secondary'), fontSize: 13, fontWeight: 'normal' },
+            left: 8, top: 4,
+          },
+          tooltip: {
+            trigger: 'item',
+            formatter: function (p) {
+              if (p.data._type === 'concept') {
+                var members = p.data._members || [];
+                var list = '';
+                for (var i = 0; i < Math.min(members.length, 5); i++) {
+                  list += '<br/>  · ' + members[i].name + ' (' + members[i].limit_times + '板)';
+                }
+                if (members.length > 5) list += '<br/>  · … 还有 ' + (members.length - 5) + ' 只';
+                return '<b>' + p.name + '</b>' +
+                  '<br/>热度: <b>' + p.data._heat.toFixed(2) + '</b>' +
+                  '<br/>标的: <b>' + p.data._member_count + '</b> 只' + list;
+              } else if (p.data._type === 'theme') {
+                return '<b>' + p.name + '</b>' +
+                  '<br/>主题热度: <b>' + p.data._heat.toFixed(2) + '</b>' +
+                  '<br/>涵盖: <b>' + p.data._member_count + '</b> 只' +
+                  (p.data._description ? '<br/><br/>' + p.data._description : '');
+              } else if (p.data._type === 'stock') {
+                return '<b>' + (p.data._name || p.name) + '</b>' +
+                  '<br/>代码: ' + p.name +
+                  '<br/>连板: <b>' + p.data._limit_times + '板</b>' +
+                  (p.data._industry ? '<br/>行业: ' + p.data._industry : '') +
+                  (p.data._fd_amount ? '<br/>封单: ' + (p.data._fd_amount / 1e8).toFixed(1) + '亿' : '') +
+                  (p.data._first_time ? '<br/>封板: ' + p.data._first_time : '');
+              }
+              return p.name;
+            },
+            backgroundColor: C('--bg-card'), borderColor: C('--border-color'),
+            textStyle: { color: C('--text-primary'), fontSize: 12 },
+          },
+          legend: {
+            data: categories,
+            top: 0, left: 'center',
+            textStyle: { color: C('--text-secondary'), fontSize: 11 },
+            icon: 'roundRect', itemWidth: 14, itemHeight: 8,
+          },
+          series: [{
+            type: 'graph',
+            layout: 'force',
+            force: {
+              repulsion: 300,
+              edgeLength: [80, 200],
+              layoutAnimation: false,
+              friction: 0.1,
+            },
+            roam: true,
+            draggable: true,
+            data: nodes,
+            links: links,
+            categories: categories,
+            edgeSymbol: ['none', 'none'],
+            lineStyle: { color: 'source', opacity: 0.25, width: 1 },
+            label: { show: true, position: 'right', color: C('--text-primary'), fontSize: 10 },
+            emphasis: {
+              focus: 'adjacency',
+              lineStyle: { width: 3, opacity: 0.8 },
+            },
+            itemStyle: {
+              borderColor: C('--bg-card'),
+              borderWidth: 1,
+            },
+          }],
+        };
+
+        if (!STATE.conceptChart) {
+          STATE.conceptChart = echarts.init(el);
+        }
+        STATE.conceptChart.setOption(option, true);
+        STATE.conceptChart.resize();
+      })
+      .catch(function (err) {
+        // 没有概念数据或加载失败，展示空状态
+        if (STATE.conceptChart) STATE.conceptChart.clear();
+        el.innerHTML = '<p style="color:var(--text-secondary);text-align:center;padding:40px">概念数据未就绪（运行 concept_cluster.py 生成）</p>';
+        console.info('concept graph not available:', err.message);
+      });
   }
 
   // ==================== Tab3: 行业时序 ====================
@@ -859,6 +1078,7 @@
           STATE.ffIndustryCode = code;
           var mode = document.getElementById('ff-mode-select').value;
           renderFundflowTab(code, mode);
+          if (typeof updateChatContext === "function") updateChatContext();
           // re-highlight
           renderAnomalyBanner(STATE.anomalyData);
         }
@@ -1200,10 +1420,326 @@
 
   // ==================== 窗口 resize ====================
   window.addEventListener('resize', () => {
-    ['heatChart','icChart','quintChart','rankChart','ltChart','fundflowChart','simChart'].forEach(k => {
+    ['heatChart','icChart','quintChart','rankChart','ltChart','fundflowChart','simChart','conceptChart'].forEach(k => {
       if (STATE[k]) STATE[k].resize();
     });
   });
+
+  // ==================== 聊天 ====================
+  function getWsUrl() {
+    const loc = window.location;
+    const proto = loc.protocol === 'https:' ? 'wss:' : 'ws:';
+    return proto + '//' + loc.host + '/api/chat/ws';
+  }
+
+  function initChat() {
+    var fab = document.getElementById('chat-fab');
+    var closeBtn = document.getElementById('chat-close-btn');
+    var sendBtn = document.getElementById('chat-send-btn');
+    var chatInput = document.getElementById('chat-input');
+    var agentSelect = document.getElementById('chat-agent-select');
+
+    if (!fab) return;
+
+    // FAB click → toggle chat
+    fab.addEventListener('click', toggleChat);
+    closeBtn.addEventListener('click', closeChat);
+
+    // ESC close
+    document.addEventListener('keydown', function (e) {
+      if (e.key === 'Escape' && STATE.chatOpen) closeChat();
+    });
+
+    // Agent switch
+    agentSelect.addEventListener('change', function () {
+      var oldAgent = STATE.chatAgent;
+      STATE.chatAgent = this.value;
+      // Reset session when switching agent
+      STATE.chatSessionId = null;
+      if (STATE.chatWs && STATE.chatWs.readyState === WebSocket.OPEN) {
+        STATE.chatWs.send(JSON.stringify({
+          type: 'switch_agent',
+          agent: STATE.chatAgent,
+        }));
+      }
+    });
+
+    // Send button & Enter
+    sendBtn.addEventListener('click', sendChatMessage);
+    chatInput.addEventListener('keydown', function (e) {
+      if (e.key === 'Enter' && !e.shiftKey) {
+        e.preventDefault();
+        sendChatMessage();
+      }
+    });
+    chatInput.addEventListener('input', function () {
+      document.getElementById('chat-send-btn').disabled = !this.value.trim();
+    });
+  }
+
+  function toggleChat() {
+    if (STATE.chatOpen) closeChat();
+    else openChat();
+  }
+
+  function openChat() {
+    if (STATE.chatOpen) return;
+    STATE.chatOpen = true;
+
+    document.getElementById('chat-panel').classList.remove('hidden');
+    document.getElementById('chat-fab').classList.add('hidden');
+    document.body.classList.add('chat-open');
+
+    updateChatContext();
+    connectChatWs();
+
+    // Resize charts after animation completes
+    setTimeout(function () {
+      ['heatChart','icChart','quintChart','rankChart','ltChart','fundflowChart','simChart','conceptChart'].forEach(function (k) {
+        if (STATE[k]) STATE[k].resize();
+      });
+    }, 350);
+
+    document.getElementById('chat-input').focus();
+  }
+
+  function closeChat() {
+    if (!STATE.chatOpen) return;
+    STATE.chatOpen = false;
+
+    document.getElementById('chat-panel').classList.add('hidden');
+    document.getElementById('chat-fab').classList.remove('hidden');
+    document.body.classList.remove('chat-open');
+
+    // Resize charts
+    setTimeout(function () {
+      ['heatChart','icChart','quintChart','rankChart','ltChart','fundflowChart','simChart','conceptChart'].forEach(function (k) {
+        if (STATE[k]) STATE[k].resize();
+      });
+    }, 350);
+  }
+
+  function updateChatContext() {
+    var tab = (location.hash || '#industry').replace('#', '');
+    var ctx = { tab: tab };
+
+    // Overview stats from bar
+    var stats = [];
+    var ovItems = document.querySelectorAll('.ov-item');
+    ovItems.forEach(function (el) {
+      var label = el.querySelector('.ov-label');
+      var value = el.querySelector('.ov-value');
+      if (label && value) {
+        stats.push(label.textContent.trim() + ' ' + value.textContent.trim());
+      }
+    });
+    ctx.stats = stats.join(', ');
+
+    // Tab-specific info
+    if (tab === 'fundflow') {
+      var indSelect = document.getElementById('ff-industry-select');
+      var modeSelect = document.getElementById('ff-mode-select');
+      if (indSelect) ctx.industry = indSelect.value;
+      if (modeSelect) ctx.mode = modeSelect.options[modeSelect.selectedIndex].text;
+    } else if (tab === 'limitup') {
+      var dateEl = document.getElementById('limitup-current-date');
+      if (dateEl) ctx.date = dateEl.textContent;
+    }
+
+    STATE.chatContext = ctx;
+  }
+
+  function connectChatWs() {
+    if (STATE.chatWs && STATE.chatWs.readyState === WebSocket.OPEN) return;
+
+    try {
+      var ws = new WebSocket(getWsUrl());
+      STATE.chatWs = ws;
+
+      ws.onopen = function () {
+        // Send current context
+        ws.send(JSON.stringify({ type: 'context_update', context: STATE.chatContext }));
+      };
+
+      ws.onmessage = function (event) {
+        try {
+          var data = JSON.parse(event.data);
+          handleChatWsMessage(data);
+        } catch (e) {
+          console.error('chat ws parse error:', e);
+        }
+      };
+
+      ws.onclose = function () {
+        if (STATE.chatOpen) {
+          // Auto-reconnect after 3s
+          setTimeout(connectChatWs, 3000);
+        }
+      };
+
+      ws.onerror = function () {
+        // onclose will fire next
+      };
+
+    } catch (e) {
+      console.error('chat ws connect error:', e);
+      appendChatMessage('error', '无法连接 AI 服务，请检查网络', null);
+    }
+  }
+
+  function handleChatWsMessage(data) {
+    var type = data.type;
+
+    if (type === 'chunk') {
+      appendChatChunk(data.data || '');
+    } else if (type === 'done') {
+      // Save session_id
+      if (data.session_id) {
+        if (!STATE.chatSessionId) STATE.chatSessionId = {};
+        STATE.chatSessionId[STATE.chatAgent] = data.session_id;
+      }
+      STATE.chatWaiting = false;
+      hideChatTyping();
+      var sendBtn = document.getElementById('chat-send-btn');
+      if (sendBtn) sendBtn.disabled = false;
+    } else if (type === 'error') {
+      STATE.chatWaiting = false;
+      hideChatTyping();
+      appendChatMessage('error', data.message || 'AI 服务异常', null);
+      var sendBtn = document.getElementById('chat-send-btn');
+      if (sendBtn) sendBtn.disabled = false;
+    } else if (type === 'agent_switched') {
+      // Agent switched, UI already updated
+    }
+  }
+
+  function sendChatMessage() {
+    var input = document.getElementById('chat-input');
+    var text = input.value.trim();
+    if (!text) return;
+    if (STATE.chatWaiting) return;
+
+    // Clear input
+    input.value = '';
+    document.getElementById('chat-send-btn').disabled = true;
+
+    // Add user message
+    appendChatMessage('user', text, null);
+    STATE.chatMessages.push({ role: 'user', content: text });
+
+    // Show typing indicator
+    showChatTyping(STATE.chatAgent);
+    STATE.chatWaiting = true;
+
+    // Send via WebSocket
+    var ws = STATE.chatWs;
+    if (!ws || ws.readyState !== WebSocket.OPEN) {
+      // Try reconnect
+      connectChatWs();
+      // Fallback after short wait
+      setTimeout(function () {
+        if (!STATE.chatWs || STATE.chatWs.readyState !== WebSocket.OPEN) {
+          STATE.chatWaiting = false;
+          hideChatTyping();
+          appendChatMessage('error', '无法连接 AI 服务，请重试', null);
+          return;
+        }
+        doSendQuery(text);
+      }, 500);
+    } else {
+      doSendQuery(text);
+    }
+  }
+
+  function doSendQuery(text) {
+    var ws = STATE.chatWs;
+    var msg = {
+      type: 'query',
+      agent: STATE.chatAgent,
+      message: text,
+      context: STATE.chatContext,
+    };
+    // Add session_id if we have one
+    if (STATE.chatSessionId && STATE.chatSessionId[STATE.chatAgent]) {
+      msg.session_id = STATE.chatSessionId[STATE.chatAgent];
+    } else {
+      msg.session_id = null;
+    }
+    ws.send(JSON.stringify(msg));
+  }
+
+  function appendChatMessage(role, content, agent) {
+    var container = document.getElementById('chat-messages');
+    if (!container) return;
+
+    // Remove welcome if present
+    var welcome = container.querySelector('.chat-welcome');
+    if (welcome) welcome.style.display = 'none';
+
+    var div = document.createElement('div');
+    div.className = 'chat-msg ' + role;
+
+    if (role === 'agent' && agent) {
+      div.classList.add('agent-' + agent);
+      var badge = document.createElement('span');
+      badge.className = 'chat-msg-agent-badge';
+      badge.textContent = agent === 'claude' ? 'CLAUDE' : 'HERMES';
+      div.appendChild(badge);
+      var textEl = document.createElement('div');
+      textEl.className = 'chat-msg-content';
+      textEl.textContent = content || '';
+      div.appendChild(textEl);
+    } else if (role === 'user') {
+      div.textContent = content || '';
+    } else if (role === 'error') {
+      div.textContent = '⚠ ' + (content || '未知错误');
+    }
+
+    container.appendChild(div);
+    container.scrollTop = container.scrollHeight;
+  }
+
+  function appendChatChunk(text) {
+    var container = document.getElementById('chat-messages');
+    if (!container) return;
+
+    // Find the last agent message
+    var msgs = container.querySelectorAll('.chat-msg.agent');
+    var lastMsg = msgs[msgs.length - 1];
+    if (!lastMsg) return;
+
+    var contentEl = lastMsg.querySelector('.chat-msg-content');
+    if (!contentEl) return;
+
+    contentEl.textContent += text;
+    container.scrollTop = container.scrollHeight;
+  }
+
+  function showChatTyping(agent) {
+    var container = document.getElementById('chat-messages');
+    if (!container) return;
+
+    // Remove existing typing indicator if any
+    hideChatTyping();
+
+    var div = document.createElement('div');
+    div.id = 'chat-typing-indicator';
+    div.className = 'chat-msg agent';
+    if (agent) div.classList.add('agent-' + agent);
+
+    var typing = document.createElement('div');
+    typing.className = 'chat-typing';
+    typing.innerHTML = '<span></span><span></span><span></span>';
+    div.appendChild(typing);
+
+    container.appendChild(div);
+    container.scrollTop = container.scrollHeight;
+  }
+
+  function hideChatTyping() {
+    var el = document.getElementById('chat-typing-indicator');
+    if (el) el.remove();
+  }
 
   // ==================== 主入口 ====================
   async function init() {
@@ -1269,6 +1805,9 @@
       // 初始加载策略列表
       await discoverStrategies();
       renderSimulatorTab();
+
+      // 初始化聊天
+      initChat();
 
     } catch (e) {
       console.error('初始化失败:', e);
