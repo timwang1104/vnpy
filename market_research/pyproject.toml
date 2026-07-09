@@ -19,7 +19,7 @@ dev = [
 market_research = "market_research.cli:main"
 
 [tool.setuptools.packages.find]
-where = ["src"]
+include = ["market_research", "market_research.*"]
 
 [tool.setuptools.package-data]
 "market_research" = ["report/templates/*", "report/static/*"]
