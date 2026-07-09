@@ -14,6 +14,7 @@
 <nav id="tab-nav">
   <a href="#industry" class="tab-link active">行业资金流</a>
   <a href="#limitup" class="tab-link">涨停池</a>
+  <a href="#fundflow" class="tab-link">行业时序</a>
 </nav>
 
 <!-- Tab 内容 -->
@@ -43,11 +44,8 @@
     <div class="date-row">
       <button id="btn-prev-day" class="btn">‹ 上一日</button>
       <span id="limitup-current-date" class="current-date">—</span>
+      <select id="date-select" class="date-select"></select>
       <button id="btn-next-day" class="btn">下一日 ›</button>
-    </div>
-    <div class="chart-box" style="max-width:500px">
-      <h3>交易日历</h3>
-      <div id="calendar-grid"></div>
     </div>
     <div class="chart-box">
       <h3>涨停概况</h3>
@@ -56,6 +54,24 @@
     <div class="chart-box">
       <h3>连板高度时序</h3>
       <div id="chart-limitup" class="chart-container" style="height:200px"></div>
+    </div>
+  </section>
+
+  <!-- Tab3: 行业时序 -->
+  <section id="fundflow" class="tab-content">
+    <div class="control-row">
+      <label for="ff-industry-select">行业:</label>
+      <select id="ff-industry-select" class="ff-select"></select>
+      <label for="ff-mode-select" style="margin-left:16px">指标:</label>
+      <select id="ff-mode-select" class="ff-select">
+        <option value="raw">中单净额（亿元）</option>
+        <option value="share">归一化 md_share</option>
+        <option value="zscore">Z-score（60日滚动）</option>
+      </select>
+    </div>
+    <div class="chart-box">
+      <h3 id="ff-chart-title">行业时序</h3>
+      <div id="chart-fundflow" class="chart-container" style="height:450px"></div>
     </div>
   </section>
 </main>

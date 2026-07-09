@@ -51,12 +51,14 @@
     limitup: null,       // limitup_main.json data
     calendar: null,      // calendar.json data
     limitupDate: null,   // current selected limitup date
+    ffIndustryCode: null,// current fundflow industry code
     // echarts instances
     heatChart: null,
     icChart: null,
     quintChart: null,
     rankChart: null,
     ltChart: null,
+    fundflowChart: null,
   };
 
   // ==================== 路由 ====================
@@ -69,7 +71,7 @@
     links.forEach(el => el.classList.toggle('active', el.getAttribute('href') === '#'+id));
     // resize charts on tab switch
     setTimeout(() => {
-      ['heatChart','icChart','quintChart','rankChart','ltChart'].forEach(k => {
+      ['heatChart','icChart','quintChart','rankChart','ltChart','fundflowChart'].forEach(k => {
         if (STATE[k]) STATE[k].resize();
       });
     }, 50);
@@ -340,7 +342,7 @@
   // ==================== Tab2: 涨停池 ====================
   function renderLimitupTab(data, calendar, selectedDate) {
     if (!data || !calendar) return;
-    renderCalendar(calendar, selectedDate);
+    renderDateSelect(calendar, selectedDate);
     if (data.by_date && data.by_date[selectedDate]) {
       renderLimitupDay(data.by_date[selectedDate]);
     } else {
@@ -357,54 +359,45 @@
     document.getElementById('limitup-current-date').textContent = fmt(selectedDate);
   }
 
-  let calendarGrid = null;
-  function renderCalendar(calendar, selectedDate) {
-    const container = document.getElementById('calendar-grid');
-    if (!container) return;
-    calendarGrid = calendar;
+  function renderDateSelect(calendar, selectedDate) {
+    const select = document.getElementById('date-select');
+    if (!select) return;
 
-    const dates = calendar.dates || [];
-    const selected = selectedDate;
+    const weekdays = ['周日','周一','周二','周三','周四','周五','周六'];
+    const tradeDates = (calendar.dates || []).filter(e => e.has_data).map(e => e.date);
 
-    // build month navigator
-    let html = '';
-    let currentMonth = '';
-    for (const entry of dates) {
-      const d = entry.date;
-      const monthKey = d.slice(0, 6);
-      if (monthKey !== currentMonth) {
-        if (currentMonth) html += '</div>';
-        currentMonth = monthKey;
-        html += `<div class="cal-month-label">${d.slice(0,4)}-${d.slice(4,6)}</div><div class="calendar-grid-inner">`;
-      }
-      const dayOfWeek = new Date(parseInt(d.slice(0,4)), parseInt(d.slice(4,6))-1, parseInt(d.slice(6,8))).getDay();
-      // pad start of month
-      if (html.endsWith('<div class="calendar-grid-inner">')) {
-        for (let p = 0; p < dayOfWeek; p++) html += '<div class="cal-day other-month"></div>';
-      }
-      const cls = entry.has_data ? 'cal-day' : 'cal-day no-data';
-      const sel = d === selected ? ' selected' : '';
-      html += `<div class="${cls}${sel}" data-date="${d}">${parseInt(d.slice(6,8))}</div>`;
+    // group by month, descending
+    const months = {};
+    for (const d of tradeDates) {
+      const mk = d.slice(0, 6);
+      if (!months[mk]) months[mk] = [];
+      months[mk].push(d);
     }
-    if (dates.length) html += '</div>';
-    container.innerHTML = html;
+    const sortedMonths = Object.keys(months).sort((a, b) => b.localeCompare(a));
 
-    // click handlers
-    container.querySelectorAll('.cal-day:not(.no-data)').forEach(el => {
-      el.addEventListener('click', () => {
-        const d = el.dataset.date;
-        if (d) selectLimitupDate(d);
-      });
-    });
+    let html = '';
+    for (const mk of sortedMonths) {
+      html += `<optgroup label="${mk.slice(0,4)}年${mk.slice(4,6)}月">`;
+      const days = months[mk].sort((a, b) => b.localeCompare(a));
+      for (const d of days) {
+        const dateObj = new Date(+d.slice(0,4), +d.slice(4,6)-1, +d.slice(6,8));
+        const fmtDate = `${d.slice(0,4)}-${d.slice(4,6)}-${d.slice(6,8)} ${weekdays[dateObj.getDay()]}`;
+        html += `<option value="${d}"${d === selectedDate ? ' selected' : ''}>${fmtDate}</option>`;
+      }
+      html += '</optgroup>';
+    }
+    select.innerHTML = html;
 
-    // prev/next day buttons
+    select.onchange = () => { selectLimitupDate(select.value); };
+
+    // prev/next buttons (only dates with data)
     document.getElementById('btn-prev-day').onclick = () => {
-      const idx = dates.findIndex(e => e.date === selectedDate);
-      if (idx > 0) selectLimitupDate(dates[idx - 1].date);
+      const idx = tradeDates.indexOf(selectedDate);
+      if (idx > 0) selectLimitupDate(tradeDates[idx - 1]);
     };
     document.getElementById('btn-next-day').onclick = () => {
-      const idx = dates.findIndex(e => e.date === selectedDate);
-      if (idx < dates.length - 1) selectLimitupDate(dates[idx + 1].date);
+      const idx = tradeDates.indexOf(selectedDate);
+      if (idx < tradeDates.length - 1) selectLimitupDate(tradeDates[idx + 1]);
     };
   }
 
@@ -498,9 +491,197 @@
     }, true);
   }
 
+  // ==================== Tab3: 行业时序 ====================
+
+  function getDefaultIndustryCode(industryData) {
+    // 从 Tab1 排名（最新日 md_share 最大）找默认行业
+    if (!industryData || !industryData.series) return null;
+    const series = industryData.series;
+    const mat = series.share_heat ? series.share_heat['1'] : [];
+    if (!mat || !mat.length) return null;
+    const lastRow = mat[mat.length - 1];
+    if (!lastRow) return null;
+
+    let maxIdx = 0, maxVal = -Infinity;
+    for (let i = 0; i < lastRow.length; i++) {
+      if (lastRow[i] != null && lastRow[i] > maxVal) {
+        maxVal = lastRow[i];
+        maxIdx = i;
+      }
+    }
+    const codes = series.industries_code;
+    if (codes && codes[maxIdx]) return codes[maxIdx];
+    return null;
+  }
+
+  function populateIndustrySelect(industryData) {
+    const select = document.getElementById('ff-industry-select');
+    if (!select || !industryData || !industryData.series) return;
+
+    const names = industryData.series.industries || [];
+    const codes = industryData.series.industries_code || [];
+    if (!names.length || !codes.length || names.length !== codes.length) return;
+
+    let html = '';
+    for (let i = 0; i < names.length; i++) {
+      const code = codes[i] || '';
+      html += `<option value="${code}">${names[i]}</option>`;
+    }
+    select.innerHTML = html;
+  }
+
+  function renderFundflowTab(tsCode, mode) {
+    const el = document.getElementById('chart-fundflow');
+    if (!el) return;
+    if (!STATE.fundflowChart) STATE.fundflowChart = echarts.init(el);
+
+    // Set loading
+    STATE.fundflowChart.showLoading('default', {
+      text: '加载中…',
+      textColor: C('--text-secondary'),
+      maskColor: 'rgba(0,0,0,0.3)',
+    });
+
+    fetch('/api/industry/' + encodeURIComponent(tsCode) + '/timeseries?mode=' + encodeURIComponent(mode))
+      .then(r => {
+        if (!r.ok) throw new Error('HTTP ' + r.status);
+        return r.json();
+      })
+      .then(data => {
+        STATE.fundflowChart.hideLoading();
+        if (!data || !data.dates || !data.dates.length) {
+          el.innerHTML = '<p style="color:var(--text-secondary);padding:40px;text-align:center">该行业无资金流数据</p>';
+          return;
+        }
+
+        const dates = data.dates.map(fmt);
+        const values = data.values;
+        const pct = data.pct_change;
+        const modeLabel = data.meta.mode_label;
+
+        // update chart title
+        var titleEl = document.getElementById('ff-chart-title');
+        if (titleEl) titleEl.textContent = data.name + ' — 行业时序';
+
+        STATE.fundflowChart.setOption({
+          backgroundColor: 'transparent',
+          grid: { left: 60, right: 55, top: 30, bottom: 60 },
+          legend: {
+            data: [modeLabel, '涨跌幅（%）'],
+            top: 0,
+            textStyle: { color: C('--text-secondary'), fontSize: 11 },
+            icon: 'roundRect', itemWidth: 14, itemHeight: 8,
+          },
+          tooltip: {
+            trigger: 'axis',
+            formatter: function (ps) {
+              let s = '<b>' + ps[0].axisValue + '</b>';
+              ps.forEach(function (p) {
+                var v = p.data;
+                if (v == null) return;
+                if (p.seriesIndex === 0) {
+                  s += '<br/>' + p.marker + ' ' + modeLabel + ': <b>' + (v >= 0 ? '+' : '') + v.toFixed(4) + '</b>';
+                } else {
+                  s += '<br/>' + p.marker + ' 涨跌幅: <b>' + (v >= 0 ? '+' : '') + v.toFixed(2) + '%</b>';
+                }
+              });
+              return s;
+            },
+            backgroundColor: C('--bg-card'), borderColor: C('--border-color'),
+            textStyle: { color: C('--text-primary'), fontSize: 12 },
+          },
+          xAxis: {
+            type: 'category', data: dates,
+            axisLabel: {
+              color: C('--text-secondary'), fontSize: 10,
+              interval: Math.floor(dates.length / 10),
+            },
+            axisLine: { lineStyle: { color: C('--border-color') } },
+            axisTick: { show: false },
+          },
+          yAxis: [
+            {
+              type: 'value', name: modeLabel,
+              nameTextStyle: { color: C('--text-secondary'), fontSize: 11 },
+              axisLabel: {
+                color: C('--text-secondary'), fontSize: 10,
+                formatter: function (v) {
+                  if (Math.abs(v) >= 1000) return (v / 1000).toFixed(1) + 'k';
+                  if (Math.abs(v) >= 1) return v.toFixed(2);
+                  return v.toFixed(4);
+                },
+              },
+              splitLine: { lineStyle: { color: C('--border-color') } },
+              axisLine: { lineStyle: { color: C('--border-color') } },
+            },
+            {
+              type: 'value', name: '涨跌幅（%）',
+              nameTextStyle: { color: C('--text-secondary'), fontSize: 11 },
+              axisLabel: {
+                color: C('--text-secondary'), fontSize: 10,
+                formatter: function (v) { return (v >= 0 ? '+' : '') + v.toFixed(1) + '%'; },
+              },
+              splitLine: { show: false },
+              axisLine: { lineStyle: { color: C('--border-color') } },
+            },
+          ],
+          series: [
+            {
+              name: modeLabel,
+              type: 'line',
+              yAxisIndex: 0,
+              data: values,
+              smooth: true,
+              symbol: 'none',
+              lineStyle: { color: C('--s1'), width: 2 },
+              itemStyle: { color: C('--s1') },
+              areaStyle: { color: C('--s1'), opacity: 0.06 },
+              connectNulls: false,
+            },
+            {
+              name: '涨跌幅（%）',
+              type: 'line',
+              yAxisIndex: 1,
+              data: pct,
+              smooth: true,
+              symbol: 'none',
+              lineStyle: { color: C('--s2'), width: 1.5, type: 'dashed' },
+              itemStyle: { color: C('--s2') },
+              connectNulls: false,
+            },
+          ],
+          dataZoom: [
+            {
+              type: 'slider',
+              start: 0,
+              end: 100,
+              height: 20,
+              bottom: 10,
+              borderColor: C('--border-color'),
+              backgroundColor: C('--bg-card'),
+              dataBackground: {
+                lineStyle: { color: C('--s1'), opacity: 0.3 },
+                areaStyle: { color: C('--s1'), opacity: 0.05 },
+              },
+              selectedDataBackground: {
+                lineStyle: { color: C('--s1'), opacity: 0.6 },
+                areaStyle: { color: C('--s1'), opacity: 0.15 },
+              },
+              textStyle: { color: C('--text-secondary'), fontSize: 10 },
+            },
+          ],
+        }, true);
+      })
+      .catch(function (err) {
+        STATE.fundflowChart.hideLoading();
+        el.innerHTML = '<p style="color:var(--accent-red);padding:40px;text-align:center">数据加载失败: ' + err.message + '</p>';
+        console.error('fundflow fetch error:', err);
+      });
+  }
+
   // ==================== 窗口 resize ====================
   window.addEventListener('resize', () => {
-    ['heatChart','icChart','quintChart','rankChart','ltChart'].forEach(k => {
+    ['heatChart','icChart','quintChart','rankChart','ltChart','fundflowChart'].forEach(k => {
       if (STATE[k]) STATE[k].resize();
     });
   });
