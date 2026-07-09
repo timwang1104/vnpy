@@ -5,7 +5,7 @@
 """
 from __future__ import annotations
 
-import exchange_calendars as ec  # type: ignore[import-untyped]
+import exchange_calendars as ec
 
 
 def build_calendar(start: str, end: str, trade_dates: list[str]) -> dict:

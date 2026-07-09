@@ -711,6 +711,27 @@
       STATE.limitupDate = lastTrade ? lastTrade.date : '';
       renderLimitupTab(limitupMain, calendar, STATE.limitupDate);
 
+      // Tab3 行业时序
+      populateIndustrySelect(industry);
+      const defaultCode = getDefaultIndustryCode(industry);
+      if (defaultCode) {
+        STATE.ffIndustryCode = defaultCode;
+        document.getElementById('ff-industry-select').value = defaultCode;
+        // 默认模式 raw
+        renderFundflowTab(defaultCode, 'raw');
+      }
+
+      // Tab3 事件绑定
+      document.getElementById('ff-industry-select').onchange = function () {
+        STATE.ffIndustryCode = this.value;
+        const mode = document.getElementById('ff-mode-select').value;
+        renderFundflowTab(this.value, mode);
+      };
+      document.getElementById('ff-mode-select').onchange = function () {
+        const code = STATE.ffIndustryCode;
+        if (code) renderFundflowTab(code, this.value);
+      };
+
     } catch (e) {
       console.error('初始化失败:', e);
       document.getElementById('overview-bar').innerHTML =
