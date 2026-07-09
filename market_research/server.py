@@ -64,7 +64,7 @@ def _query_industry_timeseries(
         API schema dict，或 None（行业不存在）
     """
     cur.execute(
-        "SELECT trade_date, buy_md_amount, pct_change, name "
+        "SELECT trade_date, buy_md_amount, pct_change, close, name "
         "FROM ind_fundflow WHERE ts_code=? AND content_type='行业' "
         "ORDER BY trade_date",
         (ts_code,),
@@ -73,10 +73,11 @@ def _query_industry_timeseries(
     if not rows:
         return None
 
-    name: str = rows[0][3]
+    name: str = rows[0][4]
     dates = [r[0] for r in rows]
     raw_values = [float(r[1]) for r in rows]
     pct_change = [float(r[2]) for r in rows]
+    close = [float(r[3]) for r in rows]
 
     values: list[float] | list[float | None]
     if mode == "raw":
@@ -99,6 +100,7 @@ def _query_industry_timeseries(
         "mode": mode,
         "dates": dates,
         "values": values,
+        "close": close,
         "pct_change": pct_change,
         "meta": {
             "n_dates": len(dates),

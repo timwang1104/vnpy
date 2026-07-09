@@ -613,6 +613,7 @@
 
         const dates = data.dates.map(fmt);
         const values = data.values;
+        const close = data.close;
         const pct = data.pct_change;
         const modeLabel = data.meta.mode_label;
 
@@ -620,11 +621,24 @@
         var titleEl = document.getElementById('ff-chart-title');
         if (titleEl) titleEl.textContent = data.name + ' — 行业时序';
 
+        // Right axis scale formatter
+        function fmtClose(v) {
+          if (v == null) return '-';
+          return v >= 10000 ? (v / 10000).toFixed(2) + '万' : v.toFixed(2);
+        }
+
         STATE.fundflowChart.setOption({
           backgroundColor: 'transparent',
-          grid: { left: 60, right: 55, top: 30, bottom: 60 },
+          grid: { left: 60, right: 80, top: 30, bottom: 60 },
           legend: {
-            data: [modeLabel, '涨跌幅（%）'],
+            data: [
+              { name: modeLabel, icon: 'roundRect' },
+              { name: '行业指数', icon: 'roundRect' },
+              { name: '涨跌幅（%）', icon: 'roundRect' },
+            ],
+            selected: {
+              '涨跌幅（%）': false,  // 默认隐藏
+            },
             top: 0,
             textStyle: { color: C('--text-secondary'), fontSize: 11 },
             icon: 'roundRect', itemWidth: 14, itemHeight: 8,
@@ -638,6 +652,8 @@
                 if (v == null) return;
                 if (p.seriesIndex === 0) {
                   s += '<br/>' + p.marker + ' ' + modeLabel + ': <b>' + (v >= 0 ? '+' : '') + v.toFixed(4) + '</b>';
+                } else if (p.seriesIndex === 1) {
+                  s += '<br/>' + p.marker + ' 行业指数: <b>' + v.toFixed(2) + '</b>';
                 } else {
                   s += '<br/>' + p.marker + ' 涨跌幅: <b>' + (v >= 0 ? '+' : '') + v.toFixed(2) + '%</b>';
                 }
@@ -672,14 +688,23 @@
               axisLine: { lineStyle: { color: C('--border-color') } },
             },
             {
-              type: 'value', name: '涨跌幅（%）',
+              type: 'value', name: '行业指数',
               nameTextStyle: { color: C('--text-secondary'), fontSize: 11 },
               axisLabel: {
                 color: C('--text-secondary'), fontSize: 10,
-                formatter: function (v) { return (v >= 0 ? '+' : '') + v.toFixed(1) + '%'; },
+                formatter: fmtClose,
               },
               splitLine: { show: false },
               axisLine: { lineStyle: { color: C('--border-color') } },
+            },
+            {
+              type: 'value',
+              name: '',
+              axisLabel: { show: false },
+              splitLine: { show: false },
+              axisLine: { show: false },
+              axisTick: { show: false },
+              nameTextStyle: { color: C('--text-secondary'), fontSize: 11 },
             },
           ],
           series: [
@@ -696,9 +721,20 @@
               connectNulls: false,
             },
             {
-              name: '涨跌幅（%）',
+              name: '行业指数',
               type: 'line',
               yAxisIndex: 1,
+              data: close,
+              smooth: true,
+              symbol: 'none',
+              lineStyle: { color: C('--s3'), width: 1.5 },
+              itemStyle: { color: C('--s3') },
+              connectNulls: false,
+            },
+            {
+              name: '涨跌幅（%）',
+              type: 'line',
+              yAxisIndex: 2,
               data: pct,
               smooth: true,
               symbol: 'none',
