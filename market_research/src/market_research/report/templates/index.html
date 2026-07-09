@@ -1,0 +1,66 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>市场研究</title>
+<link rel="stylesheet" href="static/style.css">
+</head>
+<body>
+<!-- 概览条 -->
+<header id="overview-bar"></header>
+
+<!-- Tab 导航 -->
+<nav id="tab-nav">
+  <a href="#industry" class="tab-link active">行业资金流</a>
+  <a href="#limitup" class="tab-link">涨停池</a>
+</nav>
+
+<!-- Tab 内容 -->
+<main>
+  <!-- Tab1: 行业资金流 -->
+  <section id="industry" class="tab-content active">
+    <div class="chart-box">
+      <h3>行业 × 日期 的 md_share 热力图</h3>
+      <div id="chart-heat" class="chart-container"></div>
+    </div>
+    <div class="chart-box">
+      <h3>最新交易日截面排名</h3>
+      <div id="chart-rank" class="chart-container" style="height:500px"></div>
+    </div>
+    <div class="chart-box">
+      <h3>前瞻 IC 时序 (md_share vs 未来5日收益)</h3>
+      <div id="chart-ic" class="chart-container" style="height:280px"></div>
+    </div>
+    <div class="chart-box">
+      <h3>五分组前瞻超额收益</h3>
+      <div id="chart-quint" class="chart-container" style="height:300px"></div>
+    </div>
+  </section>
+
+  <!-- Tab2: 涨停池 -->
+  <section id="limitup" class="tab-content">
+    <div class="date-row">
+      <button id="btn-prev-day" class="btn">‹ 上一日</button>
+      <span id="limitup-current-date" class="current-date">—</span>
+      <button id="btn-next-day" class="btn">下一日 ›</button>
+    </div>
+    <div class="chart-box" style="max-width:500px">
+      <h3>交易日历</h3>
+      <div id="calendar-grid"></div>
+    </div>
+    <div class="chart-box">
+      <h3>涨停概况</h3>
+      <div id="limitup-day-content"></div>
+    </div>
+    <div class="chart-box">
+      <h3>连板高度时序</h3>
+      <div id="chart-limitup" class="chart-container" style="height:200px"></div>
+    </div>
+  </section>
+</main>
+
+<script src="https://cdn.jsdelivr.net/npm/echarts@5.6.0/dist/echarts.min.js"></script>
+<script src="static/app.js"></script>
+</body>
+</html>
