@@ -43,8 +43,18 @@
   <section id="limitup" class="tab-content">
     <div class="date-row">
       <button id="btn-prev-day" class="btn">‹ 上一日</button>
-      <span id="limitup-current-date" class="current-date">—</span>
-      <select id="date-select" class="date-select"></select>
+      <div class="date-picker" id="date-picker">
+        <span id="limitup-current-date" class="current-date dp-trigger">—</span>
+        <div class="dp-popup" id="dp-popup">
+          <div class="dp-header">
+            <button class="dp-nav" id="dp-prev-month" type="button">‹</button>
+            <span id="dp-month-year">—</span>
+            <button class="dp-nav" id="dp-next-month" type="button">›</button>
+          </div>
+          <div class="dp-weekdays"><span>日</span><span>一</span><span>二</span><span>三</span><span>四</span><span>五</span><span>六</span></div>
+          <div class="dp-days" id="dp-days"></div>
+        </div>
+      </div>
       <button id="btn-next-day" class="btn">下一日 ›</button>
     </div>
     <div class="chart-box">

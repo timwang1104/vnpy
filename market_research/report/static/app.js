@@ -342,11 +342,10 @@
   // ==================== Tab2: 涨停池 ====================
   function renderLimitupTab(data, calendar, selectedDate) {
     if (!data || !calendar) return;
-    renderDateSelect(calendar, selectedDate);
+    renderDatePicker(calendar, selectedDate);
     if (data.by_date && data.by_date[selectedDate]) {
       renderLimitupDay(data.by_date[selectedDate]);
     } else {
-      // try loading historical slice
       loadJson('data/limitup/' + selectedDate + '.json')
         .then(dayData => renderLimitupDay(dayData))
         .catch(() => {
@@ -355,51 +354,109 @@
         });
     }
     renderLimitupChart(data);
-    // update date display
-    document.getElementById('limitup-current-date').textContent = fmt(selectedDate);
   }
 
-  function renderDateSelect(calendar, selectedDate) {
-    const select = document.getElementById('date-select');
-    if (!select) return;
+  // ==================== 日期弹出日历选择器 ====================
+  let _tradeDates = [];
+  let _dpOpen = false;
+  let _viewYear = 0, _viewMonth = 0; // 0-based month
+
+  function renderDatePicker(calendar, selectedDate) {
+    closeDatePicker();
+    const trigger = document.getElementById('limitup-current-date');
+    if (!trigger) return;
 
     const weekdays = ['周日','周一','周二','周三','周四','周五','周六'];
-    const tradeDates = (calendar.dates || []).filter(e => e.has_data).map(e => e.date);
+    const dateObj = new Date(+selectedDate.slice(0,4), +selectedDate.slice(4,6)-1, +selectedDate.slice(6,8));
+    trigger.textContent = `${selectedDate.slice(0,4)}-${selectedDate.slice(4,6)}-${selectedDate.slice(6,8)} ${weekdays[dateObj.getDay()]}`;
 
-    // group by month, descending
-    const months = {};
-    for (const d of tradeDates) {
-      const mk = d.slice(0, 6);
-      if (!months[mk]) months[mk] = [];
-      months[mk].push(d);
-    }
-    const sortedMonths = Object.keys(months).sort((a, b) => b.localeCompare(a));
+    _tradeDates = (calendar.dates || []).filter(e => e.has_data).map(e => e.date);
+    _viewYear = +selectedDate.slice(0,4);
+    _viewMonth = +selectedDate.slice(4,6) - 1;
 
-    let html = '';
-    for (const mk of sortedMonths) {
-      html += `<optgroup label="${mk.slice(0,4)}年${mk.slice(4,6)}月">`;
-      const days = months[mk].sort((a, b) => b.localeCompare(a));
-      for (const d of days) {
-        const dateObj = new Date(+d.slice(0,4), +d.slice(4,6)-1, +d.slice(6,8));
-        const fmtDate = `${d.slice(0,4)}-${d.slice(4,6)}-${d.slice(6,8)} ${weekdays[dateObj.getDay()]}`;
-        html += `<option value="${d}"${d === selectedDate ? ' selected' : ''}>${fmtDate}</option>`;
-      }
-      html += '</optgroup>';
-    }
-    select.innerHTML = html;
+    trigger.onclick = (e) => {
+      e.stopPropagation();
+      toggleDatePicker(selectedDate);
+    };
 
-    select.onchange = () => { selectLimitupDate(select.value); };
+    document.getElementById('dp-prev-month').onclick = (e) => {
+      e.stopPropagation();
+      _viewMonth--; if (_viewMonth < 0) { _viewMonth = 11; _viewYear--; }
+      renderCalendarPopup(selectedDate);
+    };
+    document.getElementById('dp-next-month').onclick = (e) => {
+      e.stopPropagation();
+      _viewMonth++; if (_viewMonth > 11) { _viewMonth = 0; _viewYear++; }
+      renderCalendarPopup(selectedDate);
+    };
 
-    // prev/next buttons (only dates with data)
+    // prev/next buttons
     document.getElementById('btn-prev-day').onclick = () => {
-      const idx = tradeDates.indexOf(selectedDate);
-      if (idx > 0) selectLimitupDate(tradeDates[idx - 1]);
+      const idx = _tradeDates.indexOf(selectedDate);
+      if (idx > 0) selectLimitupDate(_tradeDates[idx - 1]);
     };
     document.getElementById('btn-next-day').onclick = () => {
-      const idx = tradeDates.indexOf(selectedDate);
-      if (idx < tradeDates.length - 1) selectLimitupDate(tradeDates[idx + 1]);
+      const idx = _tradeDates.indexOf(selectedDate);
+      if (idx < _tradeDates.length - 1) selectLimitupDate(_tradeDates[idx + 1]);
     };
+
+    renderCalendarPopup(selectedDate);
   }
+
+  function toggleDatePicker(selectedDate) {
+    _dpOpen = !_dpOpen;
+    document.getElementById('dp-popup').classList.toggle('hidden', !_dpOpen);
+    if (_dpOpen) {
+      // Reset view to selected date's month
+      _viewYear = +selectedDate.slice(0,4);
+      _viewMonth = +selectedDate.slice(4,6) - 1;
+      renderCalendarPopup(selectedDate);
+    }
+  }
+
+  function closeDatePicker() {
+    const popup = document.getElementById('dp-popup');
+    if (popup) popup.classList.add('hidden');
+    _dpOpen = false;
+  }
+
+  function renderCalendarPopup(selectedDate) {
+    document.getElementById('dp-month-year').textContent =
+      `${_viewYear}年${String(_viewMonth + 1).padStart(2, '0')}月`;
+
+    const tradeDateSet = new Set(_tradeDates);
+    const daysContainer = document.getElementById('dp-days');
+
+    const firstDay = new Date(_viewYear, _viewMonth, 1).getDay();
+    const daysInMonth = new Date(_viewYear, _viewMonth + 1, 0).getDate();
+
+    let html = '';
+    for (let i = 0; i < firstDay; i++) html += '<div class="dp-day empty"></div>';
+
+    for (let day = 1; day <= daysInMonth; day++) {
+      const dateStr = `${_viewYear}${String(_viewMonth + 1).padStart(2, '0')}${String(day).padStart(2, '0')}`;
+      const hasData = tradeDateSet.has(dateStr);
+      let cls = 'dp-day';
+      if (!hasData) cls += ' muted';
+      if (dateStr === selectedDate) cls += ' selected';
+      html += `<div class="${cls}" data-date="${dateStr}">${day}</div>`;
+    }
+
+    daysContainer.innerHTML = html;
+
+    daysContainer.querySelectorAll('.dp-day:not(.empty):not(.muted)').forEach(el => {
+      el.addEventListener('click', () => {
+        selectLimitupDate(el.dataset.date);
+        closeDatePicker();
+      });
+    });
+  }
+
+  // Close date picker on outside click (one-time setup)
+  document.addEventListener('click', (e) => {
+    const picker = document.getElementById('date-picker');
+    if (_dpOpen && picker && !picker.contains(e.target)) closeDatePicker();
+  });
 
   function selectLimitupDate(d) {
     STATE.limitupDate = d;
