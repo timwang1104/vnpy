@@ -1,0 +1,605 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>行业资金流 md_share 信号仪表盘</title>
+<script src="https://cdn.jsdelivr.net/npm/echarts@5/dist/echarts.min.js"></script>
+<style>
+  :root {
+    /* ---- dataviz reference palette (light) ---- */
+    --surface-1:      #fcfcfb;   /* chart surface */
+    --surface-2:      #f9f9f7;   /* page plane */
+    --text-primary:   #0b0b0b;
+    --text-secondary: #52514e;
+    --text-muted:     #898781;
+    --gridline:       #e1e0d9;
+    --baseline:       #c3c2b7;
+    --border:         rgba(11,11,11,0.10);
+    /* diverging: blue(负/中单净流出) <-> red(正/中单净流入), gray midpoint */
+    --div-neg-strong: #1c5cab;
+    --div-neg:        #2a78d6;
+    --div-neg-soft:   #9ec5f4;
+    --div-mid:        #b0b0aa;
+    --div-pos-soft:   #f3a7a3;
+    --div-pos:        #e34948;
+    --div-pos-strong: #b8302f;
+    /* categorical (for IC lines) */
+    --s1: #2a78d6;  --s2: #e34948;  --s3: #eda100;  --s4: #008300;
+    /* status */
+    --good: #0ca30c; --warning: #fab219; --serious: #ec835a; --critical: #d03b3b;
+    --shadow: 0 1px 2px rgba(11,11,11,0.04);
+  }
+  @media (prefers-color-scheme: dark) {
+    :root {
+      --surface-1:      #1a1a19;
+      --surface-2:      #0d0d0d;
+      --text-primary:   #ffffff;
+      --text-secondary: #c3c2b7;
+      --text-muted:     #898781;
+      --gridline:       #2c2c2a;
+      --baseline:       #383835;
+      --border:         rgba(255,255,255,0.10);
+      --div-neg-strong: #184f95;
+      --div-neg:        #3987e5;
+      --div-neg-soft:   #2a78d6;
+      --div-mid:        #555550;
+      --div-pos-soft:   #8a3a3a;
+      --div-pos:        #e66767;
+      --div-pos-strong: #d03b3b;
+      --s1: #3987e5;  --s2: #e66767;  --s3: #c98500;  --s4: #008300;
+      --good: #0ca30c; --warning: #fab219; --serious: #ec835a; --critical: #d03b3b;
+      --shadow: 0 1px 2px rgba(0,0,0,0.4);
+    }
+  }
+  * { box-sizing: border-box; }
+  html, body {
+    margin: 0; padding: 0;
+    background: var(--surface-2);
+    color: var(--text-primary);
+    font-family: system-ui, -apple-system, "Segoe UI", sans-serif;
+    -webkit-font-smoothing: antialiased;
+  }
+  .wrap { max-width: 1320px; margin: 0 auto; padding: 24px 28px 80px; }
+
+  /* ---- header ---- */
+  .head { margin-bottom: 18px; }
+  .head h1 {
+    font-size: 22px; font-weight: 650; margin: 0 0 6px;
+    letter-spacing: -0.01em;
+  }
+  .head .sub {
+    font-size: 13px; color: var(--text-secondary); line-height: 1.6;
+    max-width: 980px;
+  }
+  .head .note {
+    margin-top: 10px; padding: 10px 14px; font-size: 12px; line-height: 1.6;
+    border: 1px solid var(--border); border-radius: 8px;
+    background: var(--surface-1); color: var(--text-secondary);
+  }
+  .head .note b { color: var(--text-primary); }
+
+  /* ---- filter row ---- */
+  .filters {
+    display: flex; align-items: center; gap: 22px; flex-wrap: wrap;
+    padding: 12px 16px; margin: 18px 0 22px;
+    background: var(--surface-1); border: 1px solid var(--border);
+    border-radius: 10px; box-shadow: var(--shadow);
+  }
+  .filters .fg { display: flex; align-items: center; gap: 8px; }
+  .filters label { font-size: 12px; color: var(--text-secondary); font-weight: 600; }
+  .filters select, .filters input[type="date"] {
+    font: inherit; font-size: 13px; color: var(--text-primary);
+    background: var(--surface-2); border: 1px solid var(--border);
+    border-radius: 6px; padding: 5px 8px; min-height: 30px;
+  }
+  .filters .spacer { flex: 1; }
+  .filters .legend-mini {
+    display: flex; align-items: center; gap: 6px; font-size: 11px; color: var(--text-muted);
+  }
+  .swatch { width: 11px; height: 11px; border-radius: 2px; display: inline-block; }
+
+  /* ---- KPI row ---- */
+  .kpis { display: grid; grid-template-columns: repeat(6, 1fr); gap: 12px; margin-bottom: 22px; }
+  .kpi {
+    background: var(--surface-1); border: 1px solid var(--border);
+    border-radius: 10px; padding: 14px 16px; box-shadow: var(--shadow);
+  }
+  .kpi .lbl { font-size: 11px; color: var(--text-muted); text-transform: uppercase; letter-spacing: 0.04em; }
+  .kpi .val {
+    font-size: 24px; font-weight: 650; margin-top: 4px;
+    font-variant-numeric: tabular-nums; letter-spacing: -0.01em;
+  }
+  .kpi .sub { font-size: 11px; color: var(--text-secondary); margin-top: 3px; }
+  .kpi .val.neg { color: var(--div-neg); }
+  .kpi .val.pos { color: var(--div-pos); }
+
+  /* ---- chart cards ---- */
+  .grid { display: grid; grid-template-columns: 1fr; gap: 18px; }
+  .card {
+    background: var(--surface-1); border: 1px solid var(--border);
+    border-radius: 10px; padding: 16px 18px 8px; box-shadow: var(--shadow);
+  }
+  .card h2 {
+    font-size: 14px; font-weight: 650; margin: 0 0 2px;
+    color: var(--text-primary);
+  }
+  .card .desc { font-size: 12px; color: var(--text-secondary); margin: 0 0 10px; line-height: 1.5; }
+  .chart { width: 100%; }
+  #heat { height: 1400px; }
+  #rank { height: 540px; }
+  #ic   { height: 280px; }
+  #quint{ height: 300px; }
+  #count{ height: 150px; }
+
+  .loading { color: var(--text-muted); font-size: 13px; padding: 40px; text-align: center; }
+  .err { color: var(--critical); font-size: 13px; padding: 40px; text-align: center; }
+  footer { margin-top: 28px; font-size: 11px; color: var(--text-muted); line-height: 1.6; }
+  footer code { background: var(--surface-1); padding: 1px 5px; border-radius: 3px; border: 1px solid var(--border); }
+</style>
+</head>
+<body>
+<div class="wrap">
+
+  <div class="head">
+    <h1>行业资金流 md_share 信号仪表盘</h1>
+    <div class="sub">
+      数据源：<code>data/tushare.db · ind_fundflow</code>（content_type=行业）。
+      信号 <b>md_share[i,t] = buy_md_amount[i,t] / Σ<sub>j∈行业</sub>|buy_md_amount[j,t]|</b>，
+      值域 [-1,1]，正值=中单净流入该行业，负值=中单净流出。
+    </div>
+    <div class="note">
+      <b>口径说明（重要）：</b>行业表内混了申万多级分类，2025-09-03 起 tushare 从 ~87 个一级行业
+      扩展到 ~509 个二/三级子行业。本仪表盘用切换前（20250902）的 87 个 ts_code 作白名单，
+      全样本只取这些 code，保证截面规模稳定、父子行业不重复计数、IC 不被晚期口径污染。
+      口径修复后全样本前瞻5日 IC 干净为负（单日 -0.019，3日 -0.021），印证中单是反向指标。
+    </div>
+  </div>
+
+  <!-- filters -->
+  <div class="filters">
+    <div class="fg">
+      <label for="smooth">信号平滑窗口</label>
+      <select id="smooth">
+        <option value="1" selected>单日（k=1）</option>
+        <option value="3">3日累计（k=3）</option>
+        <option value="5">5日累计（k=5）</option>
+      </select>
+    </div>
+    <div class="fg">
+      <label for="from">起始</label>
+      <input type="date" id="from" />
+    </div>
+    <div class="fg">
+      <label for="to">截止</label>
+      <input type="date" id="to" />
+    </div>
+    <div class="spacer"></div>
+    <div class="legend-mini">
+      <span class="swatch" style="background:var(--div-neg)"></span>中单净流出
+      <span class="swatch" style="background:var(--div-mid); margin-left:8px"></span>~0
+      <span class="swatch" style="background:var(--div-pos)"></span>中单净流入
+    </div>
+  </div>
+
+  <!-- KPI row -->
+  <div class="kpis" id="kpis">
+    <div class="kpi"><div class="lbl">白名单一级行业</div><div class="val" id="k-whitelist">—</div><div class="sub" id="k-whitelist-sub"></div></div>
+    <div class="kpi"><div class="lbl">交易日数</div><div class="val" id="k-dates">—</div><div class="sub" id="k-dates-sub"></div></div>
+    <div class="kpi"><div class="lbl">最新截面净流入/流出</div><div class="val" id="k-pn">—</div><div class="sub" id="k-pn-sub"></div></div>
+    <div class="kpi"><div class="lbl">全样本 IC (k=1, 5日)</div><div class="val neg" id="k-ic1">—</div><div class="sub">单日信号 · 反向</div></div>
+    <div class="kpi"><div class="lbl">全样本 IC (k=3, 5日)</div><div class="val neg" id="k-ic3">—</div><div class="sub">3日平滑 · 反向</div></div>
+    <div class="kpi"><div class="lbl">口径切换日</div><div class="val" id="k-cut">—</div><div class="sub" id="k-cut-sub"></div></div>
+  </div>
+
+  <!-- charts -->
+  <div class="grid">
+
+    <div class="card">
+      <h2>① 行业 × 日期 的 md_share 热力图</h2>
+      <div class="desc">每行一个一级行业，每列一个交易日，颜色编码中单净流入强度。蓝色=中单净流出（潜在反转做多候选），红色=中单净流入。横向看资金轮动，纵向看某行业的中单偏好周期。Hover 查具体值。白线为口径切换日（2025-09-03）。</div>
+      <div id="heat" class="chart"><div class="loading">加载中…</div></div>
+    </div>
+
+    <div class="card">
+      <h2>② 最新交易日截面排名</h2>
+      <div class="desc" id="rank-desc">全行业在最新交易日的 md_share，按从最负（中单净流出最深，反转做多候选）到最正（中单净流入最深）排序。Diverging 条形，零线居中。</div>
+      <div id="rank" class="chart"><div class="loading">加载中…</div></div>
+    </div>
+
+    <div class="card">
+      <h2>③ 前瞻 IC 时序（md_share vs 未来5日行业收益）</h2>
+      <div class="desc">滚动 40 交易日窗口的截面 Spearman IC。负值=中单净流入越高的行业未来越跑输（反向指标成立）。蓝线=单日信号，红线=3日平滑信号。零线为虚线。</div>
+      <div id="ic" class="chart"><div class="loading">加载中…</div></div>
+    </div>
+
+    <div class="card">
+      <h2>④ 五分组前瞻超额收益</h2>
+      <div class="desc">每个交易日按 md_share 从低到高均分5组，各组未来5日平均收益减去全行业等权收益。q0=中单净流出最深，q4=净流入最深。若反转效应成立，q0 应为正、q4 应为负。左：单日信号；右：3日平滑。</div>
+      <div id="quint" class="chart"><div class="loading">加载中…</div></div>
+    </div>
+
+    <div class="card">
+      <h2>⑤ 每日白名单覆盖数</h2>
+      <div class="desc">白名单 87 个 ts_code 每个交易日在表中存在的数量。早期 ~86，口径切换后约 75（12 个被 tushare 拆分/改名而脱离白名单）。用于核对截面规模一致性。</div>
+      <div id="count" class="chart"><div class="loading">加载中…</div></div>
+    </div>
+
+  </div>
+
+  <footer>
+    生成方式：<code>examples/fundflow_viz/build_data.py</code> 从 <code>data/tushare.db</code> 计算 →
+    <code>data.json</code> → 本页 ECharts 渲染。纯标准库，无 numpy/pandas 依赖。
+    色板遵循 dataviz 规范（diverging blue↔red，gray 中点；浅/深色双模式）。
+  </footer>
+</div>
+
+<script>
+const CSS = getComputedStyle(document.documentElement);
+const C = (n) => CSS.getPropertyValue(n).trim();
+let DATA = null;
+
+// ---------- diverging color scale (blue<->red, gray mid) ----------
+function divColor(v) {
+  // v in [-1,1]; map to 5-stop ramp
+  const a = Math.max(-1, Math.min(1, v));
+  if (Math.abs(a) < 0.02) return C('--div-mid');
+  if (a > 0) {
+    const t = a; // 0..1
+    if (t < 0.5) return interp(C('--div-mid'), C('--div-pos-soft'), t/0.5);
+    return interp(C('--div-pos-soft'), C('--div-pos'), (t-0.5)/0.5);
+  } else {
+    const t = -a;
+    if (t < 0.5) return interp(C('--div-mid'), C('--div-neg-soft'), t/0.5);
+    return interp(C('--div-neg-soft'), C('--div-neg'), (t-0.5)/0.5);
+  }
+}
+function interp(hexA, hexB, t) {
+  const a = parseHex(hexA), b = parseHex(hexB);
+  const r = Math.round(a[0]+(b[0]-a[0])*t);
+  const g = Math.round(a[1]+(b[1]-a[1])*t);
+  const bl = Math.round(a[2]+(b[2]-a[2])*t);
+  return `rgb(${r},${g},${bl})`;
+}
+function parseHex(h) {
+  h = h.replace('#','');
+  if (h.length===3) h = h.split('').map(x=>x+x).join('');
+  return [parseInt(h.slice(0,2),16), parseInt(h.slice(2,4),16), parseInt(h.slice(4,6),16)];
+}
+
+// ---------- date helpers ----------
+function fmt(d) { return d.slice(0,4)+'-'+d.slice(4,6)+'-'+d.slice(6,8); }
+function toInput(d) { return fmt(d); }
+
+// ---------- load ----------
+async function load() {
+  try {
+    const r = await fetch('data.json');
+    if (!r.ok) throw new Error('HTTP '+r.status);
+    DATA = await r.json();
+  } catch (e) {
+    document.querySelectorAll('.chart').forEach(el => el.innerHTML = '<div class="err">无法加载 data.json：'+e.message+'<br>请用本地静态服务器打开本页（如 <code>python3 -m http.server</code> 在 examples/fundflow_viz/ 下）。</div>');
+    return;
+  }
+  initFilters();
+  renderKpi();
+  bind();
+  renderAll();
+}
+
+function initFilters() {
+  const from = document.getElementById('from');
+  const to = document.getElementById('to');
+  from.min = toInput(DATA.dates[0]); from.max = toInput(DATA.dates[DATA.dates.length-1]);
+  to.min = from.min; to.max = from.max;
+  // default: full range
+  from.value = toInput(DATA.dates[0]);
+  to.value = toInput(DATA.dates[DATA.dates.length-1]);
+}
+
+function currentRange() {
+  const fromV = document.getElementById('from').value.replace(/-/g,'');
+  const toV = document.getElementById('to').value.replace(/-/g,'');
+  let li = 0, ri = DATA.dates.length-1;
+  // find first date >= fromV
+  for (let i=0;i<DATA.dates.length;i++){ if (DATA.dates[i]>=fromV){ li=i; break; } }
+  for (let i=DATA.dates.length-1;i>=0;i--){ if (DATA.dates[i]<=toV){ ri=i; break; } }
+  if (li>ri) { li=0; ri=DATA.dates.length-1; }
+  return [li, ri];
+}
+function currentK() { return parseInt(document.getElementById('smooth').value,10); }
+
+function bind() {
+  ['smooth','from','to'].forEach(id => {
+    document.getElementById(id).addEventListener('change', renderAll);
+  });
+}
+
+// ---------- KPI ----------
+function renderKpi() {
+  const k = DATA.kpi;
+  document.getElementById('k-whitelist').textContent = k.whitelist_size;
+  document.getElementById('k-whitelist-sub').textContent = `最新截面实存 ${k.n_industries} 个`;
+  document.getElementById('k-dates').textContent = k.n_dates;
+  document.getElementById('k-dates-sub').textContent = `${fmt(k.date_min)} ~ ${fmt(k.date_max)}`;
+  document.getElementById('k-pn').textContent = `${k.pos_count} / ${k.neg_count}`;
+  document.getElementById('k-pn-sub').textContent = `净流入 / 净流出（${fmt(k.last_date)}）`;
+  document.getElementById('k-ic1').textContent = (k.ic1_total_5d>=0?'+':'')+k.ic1_total_5d.toFixed(3);
+  document.getElementById('k-ic3').textContent = (k.ic3_total_5d>=0?'+':'')+k.ic3_total_5d.toFixed(3);
+  document.getElementById('k-cut').textContent = fmt(k.cutover_date);
+  document.getElementById('k-cut-sub').textContent = 'tushare 行业粒度扩展日';
+  // IC 颜色按符号
+  document.getElementById('k-ic1').className = 'val ' + (k.ic1_total_5d<0?'neg':'pos');
+  document.getElementById('k-ic3').className = 'val ' + (k.ic3_total_5d<0?'neg':'pos');
+}
+
+// ---------- charts ----------
+let heatChart, rankChart, icChart, quintChart, countChart;
+
+function renderAll() {
+  const k = currentK();
+  const [li, ri] = currentRange();
+  renderHeat(k, li, ri);
+  renderRank(k);
+  renderIC();
+  renderQuint();
+  renderCount(li, ri);
+}
+
+function renderHeat(k, li, ri) {
+  const el = document.getElementById('heat');
+  if (!heatChart) heatChart = echarts.init(el);
+  const dates = DATA.dates.slice(li, ri+1);
+  const inds = DATA.industries;
+  const mat = DATA.share_heat[String(k)].slice(li, ri+1); // rows=dates, cols=inds
+  // echarts heatmap: data as [x(date idx), y(ind idx), value]
+  const data = [];
+  let vmax = 0;
+  for (let di=0; di<mat.length; di++){
+    const row = mat[di];
+    if (!row) continue;
+    for (let ii=0; ii<row.length; ii++){
+      const v = row[ii];
+      if (v==null) continue;
+      data.push([di, ii, v]);
+      if (Math.abs(v) > vmax) vmax = Math.abs(v);
+    }
+  }
+  // symmetric around 0
+  const vrange = Math.max(vmax, 0.02);
+  // mark line for cutover date
+  const cutDate = DATA.kpi.cutover_date;
+  const cutX = dates.indexOf(cutDate);
+  const markLine = (cutX >= 0) ? [{
+    xAxis: cutX,
+    lineStyle: { color: C('--text-primary'), type: 'solid', width: 1.5, opacity: 0.5 },
+    label: { formatter: '口径切换', color: C('--text-primary'), fontSize: 10, position: 'insideEndTop' }
+  }] : [];
+
+  heatChart.setOption({
+    grid: { left: 120, right: 30, top: 20, bottom: 60 },
+    tooltip: {
+      position: 'top',
+      formatter: (p) => {
+        const d = dates[p.data[0]]; const ind = inds[p.data[1]]; const v = p.data[2];
+        return `<b>${fmt(d)}</b><br/>${ind}<br/><b>md_share = ${(v>=0?'+':'')+v.toFixed(4)}</b>`;
+      },
+      backgroundColor: C('--surface-1'),
+      borderColor: C('--border'), textStyle: { color: C('--text-primary'), fontSize: 12 }
+    },
+    xAxis: {
+      type: 'category', data: dates.map(fmt),
+      axisLabel: { color: C('--text-muted'), fontSize: 10, interval: Math.floor(dates.length/8) },
+      splitArea: { show: false }, axisLine: { lineStyle: { color: C('--baseline') } },
+      axisTick: { show: false }
+    },
+    yAxis: {
+      type: 'category', data: inds,
+      axisLabel: { color: C('--text-secondary'), fontSize: 10 },
+      axisLine: { lineStyle: { color: C('--baseline') } }, axisTick: { show: false }
+    },
+    visualMap: {
+      min: -vrange, max: vrange, calculable: true, orient: 'vertical', right: 0, top: 30,
+      itemHeight: 180, itemWidth: 12,
+      textStyle: { color: C('--text-secondary'), fontSize: 10 },
+      inRange: { color: [C('--div-neg'), C('--div-neg-soft'), C('--div-mid'), C('--div-pos-soft'), C('--div-pos')] }
+    },
+    series: [{
+      type: 'heatmap', data: data,
+      progressive: 2000,
+      emphasis: { itemStyle: { borderColor: C('--text-primary'), borderWidth: 1 } },
+      markLine: { symbol: 'none', silent: true, data: markLine }
+    }]
+  }, true);
+}
+
+function renderRank(k) {
+  const el = document.getElementById('rank');
+  if (!rankChart) rankChart = echarts.init(el);
+  // use last date within current range
+  const [li, ri] = currentRange();
+  const lastD = DATA.dates[ri];
+  // need share for that date under window k
+  // data.json has last_ranking only for k=1 last date; recompute approx by using heat last row
+  const row = DATA.share_heat[String(k)][ri];
+  if (!row) { rankChart.setOption({}); return; }
+  const inds = DATA.industries;
+  const items = inds.map((nm, i) => ({ name: nm, v: row[i] })).filter(x => x.v != null);
+  items.sort((a,b) => a.v - b.v);
+  // split into neg/pos for diverging bar
+  const cats = items.map(x => x.name);
+  const vals = items.map(x => x.v);
+  const barColors = vals.map(v => divColor(v));
+  const lastDfmt = fmt(lastD);
+  document.getElementById('rank-desc').textContent =
+    `全行业在 ${lastDfmt} 的 md_share（${k===1?'单日':k+'日累计平滑'}），从最负（中单净流出最深，反转做多候选）到最正排序。零线居中。`;
+
+  rankChart.setOption({
+    grid: { left: 130, right: 40, top: 16, bottom: 40 },
+    tooltip: {
+      trigger: 'axis', axisPointer: { type: 'shadow' },
+      formatter: (ps) => {
+        const p = ps[0];
+        const v = p.data;
+        return `${p.name}<br/><b>md_share = ${(v>=0?'+':'')+v.toFixed(4)}</b>`;
+      },
+      backgroundColor: C('--surface-1'), borderColor: C('--border'),
+      textStyle: { color: C('--text-primary'), fontSize: 12 }
+    },
+    xAxis: {
+      type: 'value', min: Math.min(...vals, -0.01), max: Math.max(...vals, 0.01),
+      axisLabel: { color: C('--text-muted'), fontSize: 10, formatter: v => (v>=0?'+':'')+v.toFixed(2) },
+      splitLine: { lineStyle: { color: C('--gridline') } },
+      axisLine: { lineStyle: { color: C('--baseline') } }
+    },
+    yAxis: {
+      type: 'category', data: cats,
+      axisLabel: { color: C('--text-secondary'), fontSize: 10 },
+      axisLine: { lineStyle: { color: C('--baseline') } }, axisTick: { show: false }
+    },
+    series: [{
+      type: 'bar', data: vals.map((v,i) => ({ value: v, itemStyle: { color: barColors[i] } })),
+      barWidth: '60%',
+      label: { show: true, position: function(v){ return v.data.value>=0?'right':'left'; },
+               formatter: p => (p.data.value>=0?'+':'')+p.data.value.toFixed(3),
+               color: C('--text-secondary'), fontSize: 9 }
+    }]
+  }, true);
+}
+
+function renderIC() {
+  const el = document.getElementById('ic');
+  if (!icChart) icChart = echarts.init(el);
+  const k1 = DATA.ic_series.k1, k3 = DATA.ic_series.k3;
+  icChart.setOption({
+    grid: { left: 50, right: 30, top: 30, bottom: 40 },
+    legend: {
+      data: ['单日 (k=1)', '3日平滑 (k=3)'], top: 0,
+      textStyle: { color: C('--text-secondary'), fontSize: 11 },
+      icon: 'roundRect', itemWidth: 14, itemHeight: 8
+    },
+    tooltip: {
+      trigger: 'axis',
+      formatter: (ps) => {
+        let s = `<b>${fmt(ps[0].axisValue)}</b>`;
+        ps.forEach(p => { s += `<br/>${p.marker} ${p.seriesName}: <b>${(p.data[1]>=0?'+':'')+p.data[1].toFixed(3)}</b>`; });
+        return s;
+      },
+      backgroundColor: C('--surface-1'), borderColor: C('--border'),
+      textStyle: { color: C('--text-primary'), fontSize: 12 }
+    },
+    xAxis: {
+      type: 'category', data: k1.map(x => fmt(x[0])),
+      axisLabel: { color: C('--text-muted'), fontSize: 10, interval: Math.floor(k1.length/8) },
+      axisLine: { lineStyle: { color: C('--baseline') } }, axisTick: { show: false }
+    },
+    yAxis: {
+      type: 'value',
+      axisLabel: { color: C('--text-muted'), fontSize: 10, formatter: v => (v>=0?'+':'')+v.toFixed(2) },
+      splitLine: { lineStyle: { color: C('--gridline') } },
+      axisLine: { lineStyle: { color: C('--baseline') } }
+    },
+    series: [
+      { name: '单日 (k=1)', type: 'line', data: k1.map(x => [fmt(x[0]), x[1]]),
+        smooth: true, symbol: 'circle', symbolSize: 5,
+        lineStyle: { color: C('--s1'), width: 2 }, itemStyle: { color: C('--s1') } },
+      { name: '3日平滑 (k=3)', type: 'line', data: k3.map(x => [fmt(x[0]), x[1]]),
+        smooth: true, symbol: 'circle', symbolSize: 5,
+        lineStyle: { color: C('--s2'), width: 2 }, itemStyle: { color: C('--s2') } }
+    ],
+    markLine: { symbol: 'none', silent: true, data: [{ yAxis: 0,
+      lineStyle: { color: C('--baseline'), type: 'dashed' } }] }
+  }, true);
+}
+
+function renderQuint() {
+  const el = document.getElementById('quint');
+  if (!quintChart) quintChart = echarts.init(el);
+  const q1 = DATA.quintile_perf.k1, q3 = DATA.quintile_perf.k3;
+  const groups = ['q0\n最深净流出','q1','q2','q3','q4\n最深净流入'];
+  function seriesFor(q, name, color) {
+    return {
+      name, type: 'bar', data: q.map(v => v==null?0:v),
+      barWidth: '28%',
+      itemStyle: { color },
+      label: { show: true, position: 'top', formatter: p => (p.value>=0?'+':'')+p.value.toFixed(2)+'%',
+               color: C('--text-secondary'), fontSize: 10 }
+    };
+  }
+  quintChart.setOption({
+    grid: { left: 55, right: 30, top: 30, bottom: 50 },
+    legend: {
+      data: ['单日 (k=1)','3日平滑 (k=3)'], top: 0,
+      textStyle: { color: C('--text-secondary'), fontSize: 11 },
+      icon: 'roundRect', itemWidth: 14, itemHeight: 8
+    },
+    tooltip: {
+      trigger: 'axis', axisPointer: { type: 'shadow' },
+      formatter: (ps) => {
+        let s = `<b>${ps[0].axisValue.replace('\n',' ')}</b>`;
+        ps.forEach(p => { s += `<br/>${p.marker} ${p.seriesName}: <b>${(p.value>=0?'+':'')+p.value.toFixed(3)}%</b>`; });
+        return s;
+      },
+      backgroundColor: C('--surface-1'), borderColor: C('--border'),
+      textStyle: { color: C('--text-primary'), fontSize: 12 }
+    },
+    xAxis: {
+      type: 'category', data: groups,
+      axisLabel: { color: C('--text-secondary'), fontSize: 10 },
+      axisLine: { lineStyle: { color: C('--baseline') } }, axisTick: { show: false }
+    },
+    yAxis: {
+      type: 'value',
+      axisLabel: { color: C('--text-muted'), fontSize: 10, formatter: v => v.toFixed(1)+'%' },
+      splitLine: { lineStyle: { color: C('--gridline') } },
+      axisLine: { lineStyle: { color: C('--baseline') } }
+    },
+    series: [
+      seriesFor(q1, '单日 (k=1)', C('--s1')),
+      seriesFor(q3, '3日平滑 (k=3)', C('--s2'))
+    ],
+    markLine: { symbol: 'none', silent: true, data: [{ yAxis: 0,
+      lineStyle: { color: C('--baseline'), type: 'dashed' } }] }
+  }, true);
+}
+
+function renderCount(li, ri) {
+  const el = document.getElementById('count');
+  if (!countChart) countChart = echarts.init(el);
+  const dc = DATA.daily_count.slice(li, ri+1);
+  countChart.setOption({
+    grid: { left: 50, right: 30, top: 14, bottom: 30 },
+    tooltip: {
+      trigger: 'axis',
+      formatter: (ps) => `<b>${fmt(ps[0].axisValue)}</b><br/>白名单实存: <b>${ps[0].data[1]}</b>`,
+      backgroundColor: C('--surface-1'), borderColor: C('--border'),
+      textStyle: { color: C('--text-primary'), fontSize: 12 }
+    },
+    xAxis: {
+      type: 'category', data: dc.map(x => fmt(x[0])),
+      axisLabel: { color: C('--text-muted'), fontSize: 10, interval: Math.floor(dc.length/8) },
+      axisLine: { lineStyle: { color: C('--baseline') } }, axisTick: { show: false }
+    },
+    yAxis: {
+      type: 'value', min: 60, max: 90,
+      axisLabel: { color: C('--text-muted'), fontSize: 10 },
+      splitLine: { lineStyle: { color: C('--gridline') } },
+      axisLine: { lineStyle: { color: C('--baseline') } }
+    },
+    series: [{
+      type: 'line', data: dc.map(x => [fmt(x[0]), x[1]]),
+      lineStyle: { color: C('--s3'), width: 1.5 }, itemStyle: { color: C('--s3') },
+      symbol: 'none', areaStyle: { color: C('--s3'), opacity: 0.08 }
+    }],
+    markLine: { symbol: 'none', silent: true, data: [{ yAxis: 87,
+      lineStyle: { color: C('--baseline'), type: 'dashed' }, label: { formatter: '87', color: C('--text-muted'), fontSize: 10 } }] }
+  }, true);
+}
+
+window.addEventListener('resize', () => {
+  [heatChart, rankChart, icChart, quintChart, countChart].forEach(c => c && c.resize());
+});
+load();
+</script>
+</body>
+</html>
