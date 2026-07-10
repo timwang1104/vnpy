@@ -523,7 +523,21 @@
     container.innerHTML = html;
 
     // render concept graph (replaces industry concentration)
-    renderConceptGraph(selectedDate);
+    // extract stock ts_codes from current day's limitup data for filtering
+    var stockCodes = new Set();
+    if (dayData && dayData.tables && dayData.tables.tiers) {
+      for (var _ti = 0; _ti < dayData.tables.tiers.length; _ti++) {
+        var _t = dayData.tables.tiers[_ti];
+        if (_t.members) {
+          for (var _mj = 0; _mj < _t.members.length; _mj++) {
+            if (_t.members[_mj].ts_code) {
+              stockCodes.add(_t.members[_mj].ts_code);
+            }
+          }
+        }
+      }
+    }
+    renderConceptGraph(selectedDate, stockCodes);
   }
 
   function renderLimitupChart(data) {
@@ -571,7 +585,7 @@
 
   // ==================== 概念力导向图 ====================
 
-  function renderConceptGraph(selectedDate) {
+  function renderConceptGraph(selectedDate, dayStockCodes) {
     const el = document.getElementById('chart-concept-graph');
     if (!el) return;
     if (!selectedDate) {
@@ -584,6 +598,36 @@
       .then(conceptData => {
         if (!conceptData || !conceptData.concepts || !conceptData.concepts.length) {
           el.innerHTML = '<p style="color:var(--text-secondary);text-align:center;padding:40px">当日无概念聚合数据</p>';
+          return;
+        }
+
+        // 过滤：仅保留当前日期涨停标的所属的概念
+        if (dayStockCodes && dayStockCodes.size > 0) {
+          for (var _ci = conceptData.concepts.length - 1; _ci >= 0; _ci--) {
+            var _c = conceptData.concepts[_ci];
+            if (_c.members) {
+              _c.members = _c.members.filter(function(_m) { return dayStockCodes.has(_m.ts_code); });
+            }
+            _c.member_count = (_c.members || []).length;
+            if (_c.member_count === 0) {
+              conceptData.concepts.splice(_ci, 1);
+            }
+          }
+          // 同时过滤 links
+          if (conceptData.links) {
+            conceptData.links = conceptData.links.filter(function(_l) {
+              return dayStockCodes.has(_l.target);
+            });
+          }
+        } else if (conceptData.meta && conceptData.meta.date && selectedDate && conceptData.meta.date !== selectedDate) {
+          // 有日期信息但不匹配时提示
+          console.info('concept graph date mismatch: graph=' + conceptData.meta.date + ' selected=' + selectedDate);
+        }
+
+        // 无概念匹配时的降级
+        if (!conceptData.concepts.length) {
+          el.innerHTML = '<p style="color:var(--text-secondary);text-align:center;padding:40px">当前日期无概念聚合数据（请运行 concept_cluster.py 生成）</p>';
+          if (STATE.conceptChart) STATE.conceptChart.clear();
           return;
         }
 
