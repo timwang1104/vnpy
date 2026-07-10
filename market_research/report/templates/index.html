@@ -4,22 +4,89 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>市场研究</title>
-<link rel="stylesheet" href="static/style.css">
+<link rel="stylesheet" href="static/style.css?v=2">
 </head>
 <body>
 <!-- 概览条 -->
 <header id="overview-bar"></header>
 
-<!-- Tab 导航 -->
-<nav id="tab-nav">
-  <a href="#industry" class="tab-link active">行业资金流</a>
-  <a href="#limitup" class="tab-link">涨停池</a>
-  <a href="#fundflow" class="tab-link">行业时序</a>
-  <a href="#simulator" class="tab-link">模拟盘</a>
-</nav>
+<!-- 更新进度对话框 -->
+<div id="update-modal" class="modal-overlay hidden">
+  <div class="modal-box">
+    <div class="modal-header">
+      <span class="modal-title">📡 数据更新</span>
+      <div class="modal-header-controls">
+        <span id="update-status-badge" class="update-badge">就绪</span>
+        <button id="update-modal-close" class="modal-close-btn" title="关闭">✕</button>
+      </div>
+    </div>
+    <div class="modal-body">
+      <div id="update-progress-bar" class="update-progress-bar">
+        <div id="update-progress-fill" class="update-progress-fill"></div>
+      </div>
+      <pre id="update-log-output" class="update-log"></pre>
+    </div>
+    <div class="modal-footer">
+      <button id="update-reload-btn" class="btn" style="display:none">🔄 刷新页面</button>
+      <button id="update-modal-close-btn" class="btn">关闭</button>
+    </div>
+  </div>
+</div>
 
-<!-- Tab 内容 -->
-<main>
+<!-- 左侧 Tab 侧边栏 -->
+<div id="page-layout">
+  <aside id="tab-sidebar" class="tab-sidebar">
+    <div class="tab-sidebar-inner">
+      <a href="#industry" class="tab-link active" data-label="行业资金流">
+        <span class="tab-icon">
+          <svg viewBox="0 0 24 24" width="20" height="20">
+            <rect x="3" y="3" width="7" height="7" rx="1" fill="currentColor" opacity="0.4"/>
+            <rect x="12" y="3" width="9" height="7" rx="1" fill="currentColor" opacity="0.7"/>
+            <rect x="3" y="12" width="7" height="9" rx="1" fill="currentColor" opacity="0.6"/>
+            <rect x="12" y="12" width="9" height="9" rx="1" fill="currentColor"/>
+          </svg>
+        </span>
+        <span class="tab-label">行业资金流</span>
+      </a>
+      <a href="#limitup" class="tab-link" data-label="涨停池">
+        <span class="tab-icon">
+          <svg viewBox="0 0 24 24" width="20" height="20">
+            <line x1="4" y1="20" x2="20" y2="20" stroke="currentColor" stroke-width="2" stroke-linecap="round"/>
+            <polyline points="12,4 6,12 10,12 10,18 14,18 14,12 18,12" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
+          </svg>
+        </span>
+        <span class="tab-label">涨停池</span>
+      </a>
+      <a href="#fundflow" class="tab-link" data-label="行业时序">
+        <span class="tab-icon">
+          <svg viewBox="0 0 24 24" width="20" height="20">
+            <polyline points="3,18 9,12 13,15 21,5" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
+            <circle cx="21" cy="5" r="2" fill="currentColor"/>
+          </svg>
+        </span>
+        <span class="tab-label">行业时序</span>
+      </a>
+      <a href="#simulator" class="tab-link" data-label="模拟盘">
+        <span class="tab-icon">
+          <svg viewBox="0 0 24 24" width="20" height="20">
+            <polygon points="8,5 19,12 8,19" fill="currentColor"/>
+          </svg>
+        </span>
+        <span class="tab-label">模拟盘</span>
+      </a>
+    </div>
+    <button class="tab-sidebar-pin" id="tab-sidebar-pin" title="固定侧边栏">
+      <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+        <path d="M12 2v4M16 2v4M8 2v4"/>
+        <path d="M3 6h18"/>
+        <path d="M8 6v10c0 .6.4 1 1 1h6c.6 0 1-.4 1-1V6"/>
+        <path d="M10 17v4M14 17v4"/>
+      </svg>
+    </button>
+  </aside>
+
+  <!-- Tab 内容 -->
+  <main id="main-content">
   <!-- Tab1: 行业资金流 -->
   <section id="industry" class="tab-content active">
     <div class="chart-box">
@@ -143,6 +210,7 @@
     </div>
   </section>
 </main>
+</div>
 
 <!-- 浮动聊天按钮 -->
 <button id="chat-fab" class="chat-fab" title="AI 助手" aria-label="打开 AI 助手">
@@ -183,6 +251,6 @@
 </aside>
 
 <script src="https://cdn.jsdelivr.net/npm/echarts@5.6.0/dist/echarts.min.js"></script>
-<script src="static/app.js"></script>
+<script src="static/app.js?v=2"></script>
 </body>
 </html>

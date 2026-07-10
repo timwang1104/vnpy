@@ -122,9 +122,129 @@
     ];
     bar.innerHTML = items.map(it =>
       `<div class="ov-item"><div class="ov-label">${it.label}</div><div class="ov-value ${it.cls||''}">${it.value}</div></div>`
-    ).join('');
+    ).join('') +
+      `<button id="ov-update-btn" class="ov-update-btn" title="更新数据到数据库后重建报告">🔄 更新数据</button>`;
     // update chat context when overview loads
     if (typeof updateChatContext === 'function') updateChatContext();
+  }
+
+  // ==================== 数据更新 ====================
+
+  var UPDATE_BTN, UPDATE_MODAL, UPDATE_LOG, UPDATE_BADGE, UPDATE_PROGRESS, UPDATE_RELOAD;
+
+  function initUpdateUI() {
+    UPDATE_BTN = document.getElementById('ov-update-btn');
+    UPDATE_MODAL = document.getElementById('update-modal');
+    UPDATE_LOG = document.getElementById('update-log-output');
+    UPDATE_BADGE = document.getElementById('update-status-badge');
+    UPDATE_PROGRESS = document.getElementById('update-progress-fill');
+    UPDATE_RELOAD = document.getElementById('update-reload-btn');
+
+    if (!UPDATE_BTN) return;
+
+    UPDATE_BTN.addEventListener('click', triggerUpdate);
+    document.getElementById('update-modal-close').addEventListener('click', closeUpdateModal);
+    document.getElementById('update-modal-close-btn').addEventListener('click', closeUpdateModal);
+    if (UPDATE_RELOAD) UPDATE_RELOAD.addEventListener('click', function () { location.reload(); });
+
+    // Check if already running (e.g. triggered by cron or another tab)
+    fetchUpdateStatus();
+    setInterval(fetchUpdateStatus, 30000); // check every 30s
+  }
+
+  async function fetchUpdateStatus() {
+    try {
+      var resp = await fetch('/api/data/update/status');
+      var state = await resp.json();
+      if (state.status === 'running') {
+        setUpdateBtnState('running');
+        openUpdateModal();
+        connectUpdateSSE();
+      }
+    } catch (e) { /* server may not support update endpoint */ }
+  }
+
+  async function triggerUpdate() {
+    if (UPDATE_BTN.disabled) return;
+    setUpdateBtnState('running');
+    UPDATE_BADGE.textContent = '⏳ 运行中';
+    UPDATE_BADGE.className = 'update-badge running';
+    if (UPDATE_PROGRESS) {
+      UPDATE_PROGRESS.className = 'update-progress-fill running';
+    }
+    UPDATE_LOG.textContent = '';
+    UPDATE_RELOAD.style.display = 'none';
+    openUpdateModal();
+
+    try {
+      var resp = await fetch('/api/data/update', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ build: true }) });
+      var result = await resp.json();
+      if (result.status === 'error') {
+        appendUpdateLog('[错误] ' + (result.message || '启动失败'));
+        setUpdateBtnState('done error');
+        UPDATE_BADGE.textContent = '✗ 失败';
+        UPDATE_BADGE.className = 'update-badge error';
+        if (UPDATE_PROGRESS) UPDATE_PROGRESS.className = 'update-progress-fill error';
+        return;
+      }
+      connectUpdateSSE();
+    } catch (e) {
+      appendUpdateLog('[错误] 请求失败: ' + e.message);
+      setUpdateBtnState('done error');
+      UPDATE_BADGE.textContent = '✗ 失败';
+      UPDATE_BADGE.className = 'update-badge error';
+      if (UPDATE_PROGRESS) UPDATE_PROGRESS.className = 'update-progress-fill error';
+    }
+  }
+
+  function connectUpdateSSE() {
+    var evtSource = new EventSource('/api/data/update/log');
+
+    evtSource.onmessage = function (e) {
+      appendUpdateLog(e.data);
+    };
+
+    evtSource.addEventListener('complete', function () {
+      setUpdateBtnState('done');
+      UPDATE_BADGE.textContent = '✓ 完成';
+      UPDATE_BADGE.className = 'update-badge done';
+      if (UPDATE_PROGRESS) UPDATE_PROGRESS.className = 'update-progress-fill done';
+      if (UPDATE_RELOAD) UPDATE_RELOAD.style.display = 'inline-block';
+      evtSource.close();
+    });
+
+    evtSource.addEventListener('error', function () {
+      setUpdateBtnState('done error');
+      UPDATE_BADGE.textContent = '✗ 失败';
+      UPDATE_BADGE.className = 'update-badge error';
+      if (UPDATE_PROGRESS) UPDATE_PROGRESS.className = 'update-progress-fill error';
+      if (UPDATE_RELOAD) UPDATE_RELOAD.style.display = 'inline-block';
+      evtSource.close();
+    });
+  }
+
+  function appendUpdateLog(line) {
+    if (!UPDATE_LOG) return;
+    UPDATE_LOG.textContent += line + '\n';
+    UPDATE_LOG.scrollTop = UPDATE_LOG.scrollHeight;
+  }
+
+  function openUpdateModal() {
+    if (UPDATE_MODAL) UPDATE_MODAL.classList.remove('hidden');
+  }
+
+  function closeUpdateModal() {
+    if (UPDATE_MODAL) UPDATE_MODAL.classList.add('hidden');
+  }
+
+  function setUpdateBtnState(state) {
+    if (!UPDATE_BTN) return;
+    UPDATE_BTN.disabled = (state === 'running');
+    UPDATE_BTN.className = 'ov-update-btn' + (state ? ' ' + state : '');
+    UPDATE_BTN.textContent = state === 'running' ? '⏳ 更新中...' :
+                             state === 'done' ? '✓ 已更新' :
+                             state === 'done error' ? '✗ 更新失败' :
+                             '🔄 更新数据';
   }
 
   // ==================== Tab1: 行业资金流 ====================
@@ -1593,6 +1713,36 @@
     STATE.chatContext = ctx;
   }
 
+  // ==================== 左侧 Tab 侧边栏 ====================
+  function initSidebar() {
+    var sidebar = document.getElementById('tab-sidebar');
+    var pinBtn = document.getElementById('tab-sidebar-pin');
+    if (!sidebar) return;
+
+    // Pin 按钮：切换 .pinned 类，同时通知 body
+    pinBtn.addEventListener('click', function () {
+      sidebar.classList.toggle('pinned');
+      updateSidebarBodyClass(sidebar);
+    });
+
+    // Hover 进出通知 body
+    sidebar.addEventListener('mouseenter', function () {
+      updateSidebarBodyClass(sidebar);
+    });
+    sidebar.addEventListener('mouseleave', function () {
+      updateSidebarBodyClass(sidebar);
+    });
+
+    // 初始状态
+    updateSidebarBodyClass(sidebar);
+  }
+
+  function updateSidebarBodyClass(sidebar) {
+    var expanded = sidebar.classList.contains('pinned') ||
+                   sidebar.matches(':hover');
+    document.body.classList.toggle('sidebar-expanded', expanded);
+  }
+
   function connectChatWs() {
     if (STATE.chatWs && STATE.chatWs.readyState === WebSocket.OPEN) return;
 
@@ -1850,8 +2000,14 @@
       await discoverStrategies();
       renderSimulatorTab();
 
+      // 初始化侧边栏（Pin 按钮 + body 类名联动）
+      initSidebar();
+
       // 初始化聊天
       initChat();
+
+      // 初始化数据更新按钮
+      initUpdateUI();
 
     } catch (e) {
       console.error('初始化失败:', e);
