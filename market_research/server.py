@@ -191,8 +191,8 @@ def _query_industry_timeseries(
 # ==================== Server factory ====================
 
 # 默认路径（相对于项目根目录）
-_DEFAULT_SIM_DB = str(Path(__file__).resolve().parent / "data" / "simulator.db")
-_DEFAULT_HISTORY_DB = str(Path(__file__).resolve().parent / "data" / "history.db")
+_DEFAULT_SIM_DB = str(Path(__file__).resolve().parent.parent / "data" / "simulator.db")
+_DEFAULT_HISTORY_DB = str(Path(__file__).resolve().parent.parent / "data" / "history.db")
 
 
 def _add_simulator_routes(

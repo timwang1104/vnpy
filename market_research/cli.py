@@ -44,6 +44,8 @@ def main(argv: list[str] | None = None) -> None:
                          help="Do not open browser automatically")
     serve_p.add_argument("--db-path", default=None,
                          help="Path to tushare.db for live API (default: none, static only)")
+    serve_p.add_argument("--sim-db", default=None,
+                         help="Path to simulator.db for paper-trading API (default: none)")
 
     # run (build + serve)
     run_p = sub.add_parser("run", help="Build + serve in one command")
@@ -61,6 +63,8 @@ def main(argv: list[str] | None = None) -> None:
                        help="Do not open browser automatically")
     run_p.add_argument("--db-path", default=None,
                        help="Path to tushare.db for live API (default: none)")
+    run_p.add_argument("--sim-db", default=None,
+                       help="Path to simulator.db for paper-trading API (default: none)")
 
     args = parser.parse_args(argv)
 
@@ -77,7 +81,7 @@ def main(argv: list[str] | None = None) -> None:
     elif args.command == "serve":
         try:
             serve(args.dir, port=args.port, no_browser=args.no_browser,
-                  db_path=args.db_path)
+                  db_path=args.db_path, sim_db=args.sim_db)
         except FileNotFoundError as e:
             print(f"[market_research] 错误: {e}", file=sys.stderr)
             sys.exit(1)
@@ -89,7 +93,7 @@ def main(argv: list[str] | None = None) -> None:
             build(args.db, args.out, window=args.window, date=args.date)
             print()
             serve(args.out, port=args.port, no_browser=args.no_browser,
-                  db_path=args.db_path)
+                  db_path=args.db_path, sim_db=args.sim_db)
         except FileNotFoundError as e:
             print(f"[market_research] 错误: {e}", file=sys.stderr)
             sys.exit(1)
