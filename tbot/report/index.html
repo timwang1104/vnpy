@@ -196,6 +196,20 @@
     document.body.classList.toggle('sidebar-pinned');
   });
 
+  // ==================== 点击 Tab 自动固定侧边栏 ====================
+
+  document.querySelectorAll('.tab-link').forEach(function (link) {
+    link.addEventListener('click', function () {
+      document.body.classList.add('sidebar-pinned');
+      // 侧边栏展开动画 300ms 后触发 ECharts resize
+      setTimeout(function () {
+        if (window.__shared && window.__shared.resizeCharts) {
+          window.__shared.resizeCharts();
+        }
+      }, 350);
+    });
+  });
+
   // ==================== Tab 激活钩子 ====================
 
   window.__onTabActivate = function (id) {

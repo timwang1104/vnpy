@@ -69,7 +69,7 @@ body {
   overflow: hidden;
 }
 .tab-sidebar:hover,
-.tab-sidebar.pinned {
+body.sidebar-pinned .tab-sidebar {
   width: 152px;
 }
 
@@ -114,7 +114,7 @@ body {
   transition: opacity 0.15s;
 }
 .tab-sidebar:hover .tab-label,
-.tab-sidebar.pinned .tab-label {
+body.sidebar-pinned .tab-sidebar .tab-label {
   opacity: 1;
   transition: opacity 0.15s 0.1s; /* 100ms 延迟让宽度展开后再显示文字 */
 }
@@ -129,15 +129,15 @@ body {
   transition: opacity 0.2s, color 0.2s;
 }
 .tab-sidebar:hover .tab-sidebar-pin,
-.tab-sidebar.pinned .tab-sidebar-pin {
+body.sidebar-pinned .tab-sidebar .tab-sidebar-pin {
   opacity: 0.5;
 }
-.tab-sidebar.pinned .tab-sidebar-pin {
+body.sidebar-pinned .tab-sidebar .tab-sidebar-pin {
   opacity: 1; color: var(--accent-blue);
 }
 .tab-sidebar-pin:hover { opacity: 0.8 !important; }
 .tab-sidebar-pin svg { transition: transform 0.3s ease; }
-.tab-sidebar.pinned .tab-sidebar-pin svg { transform: rotate(45deg); }
+body.sidebar-pinned .tab-sidebar .tab-sidebar-pin svg { transform: rotate(45deg); }
 
 /* 概览条：左内边距与侧边栏等宽，内容不被侧边栏遮挡 */
 #overview-bar {
@@ -147,7 +147,7 @@ body {
   position: sticky; top: 0; z-index: 100;
   transition: padding-left 0.3s ease;
 }
-body.sidebar-expanded #overview-bar {
+body.sidebar-pinned #overview-bar {
   padding-left: calc(152px + 24px);
 }
 .ov-item { text-align: center; }
@@ -162,7 +162,7 @@ body.sidebar-expanded #overview-bar {
   margin-left: 52px;
   transition: margin-left 0.3s ease;
 }
-body.sidebar-expanded #main-content {
+body.sidebar-pinned #main-content {
   margin-left: 152px;
 }
 .tab-content { display: none; padding: 20px 24px; }
