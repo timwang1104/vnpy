@@ -1,7 +1,7 @@
 """SQLite → DuckDB 一次性迁移脚本。
 
 用法:
-    python3 scripts/migrate_to_duckdb.py [--data-dir DATA_DIR]
+    python3 scripts/migrate_to_duckdb.py
 
 迁移映射:
     SQLite tushare.db    → DuckDB market_overview_a（7 张表）
@@ -15,132 +15,96 @@ import sys
 import time
 from pathlib import Path
 
-# 添加项目根目录
-sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
+import duckdb
 
-from tbot.engines.database.manager import DatabaseManager  # noqa: E402
-from tbot.engines.database.schemas import init_all_schemas  # noqa: E402
+from tbot.engines.database.manager import DatabaseManager
+from tbot.engines.database.schemas import init_all_schemas
 
 
-def _copy_table(
+def _attach_and_copy(
     sqlite_path: str,
-    duck_conn,
-    table: str,
-    batch_size: int = 10000,
-) -> int:
-    """从 SQLite 读取并批量写入 DuckDB。返回写入行数。"""
-    sqlite_conn = sqlite3.connect(sqlite_path)
+    duck_conn: duckdb.DuckDBPyConnection,
+    duck_db_name: str,
+    tables: list[str],
+    cat: str,
+) -> dict:
+    """利用 DuckDB ATTACH 快速复制 SQLite 表到已存在的 DuckDB 表。
 
-    # 获取总行数
-    cur = sqlite_conn.execute(f"SELECT count(*) FROM \"{table}\"")
-    total = cur.fetchone()[0]
-    cur.close()
-
-    if total == 0:
-        sqlite_conn.close()
-        return 0
-
-    # 逐批读取+写入
-    offset = 0
-    written = 0
-    while offset < total:
-        sqlite_cur = sqlite_conn.execute(
-            f"SELECT * FROM \"{table}\" LIMIT {batch_size} OFFSET {offset}"
-        )
-        rows = sqlite_cur.fetchall()
-        cols = [d[0] for d in sqlite_cur.description]
-
-        if not rows:
-            break
-
-        # DuckDB 参数化插入
-        placeholders = ",".join("?" for _ in cols)
-        col_names = ", ".join(f'"{c}"' for c in cols)
-        duck_conn.executemany(
-            f"INSERT INTO \"{table}\" ({col_names}) VALUES ({placeholders})",
-            rows,
-        )
-
-        written += len(rows)
-        offset += batch_size
-
-    sqlite_conn.close()
-    return written
-
-
-def migrate_tushare(duck: DatabaseManager, data_dir: Path) -> dict:
-    """迁移 tushare.db → market_overview_a"""
-    sqlite_path = str(data_dir / "tushare.db")
+    自动处理 SQLite TEXT → DuckDB REAL 的 CAST。
+    """
     if not Path(sqlite_path).exists():
         return {"status": "skipped", "reason": f"{sqlite_path} 不存在"}
 
-    tables = [
-        "ind_fundflow",
-        "limit_up_pool",
-        "mkt_fundflow",
-        "stock_fundflow",
-        "stock_company",
-        "ths_concept",
-        "ths_member",
-    ]
+    # 先获取 DuckDB 目标表的列+类型（必须在 ATTACH 之前）
+    duck_cols_map: dict[str, list[tuple[str, str]]] = {}
+    for table in tables:
+        cols = duck_conn.execute(
+            f"SELECT column_name, data_type FROM information_schema.columns "
+            f"WHERE table_name='{table}' AND table_schema='main' "
+            f"ORDER BY ordinal_position"
+        ).fetchall()
+        if not cols:
+            print(f"  ⚠ {table}: DuckDB 中无此表，跳过")
+        duck_cols_map[table] = cols
 
-    conn = duck.get_overview()
+    # ATTACH SQLite
+    duck_conn.execute(f"ATTACH '{sqlite_path}' AS {cat} (TYPE SQLITE)")
+
     result = {}
     for table in tables:
+        duck_cols = duck_cols_map.get(table, [])
+        if not duck_cols:
+            continue
+
         t0 = time.time()
-        n = _copy_table(sqlite_path, conn, table)
+
+        # 获取 SQLite 源表的列名
+        sqlite_names = {
+            r[1] for r in duck_conn.execute(
+                f"SELECT * FROM pragma_table_info('{cat}.{table}')"
+            ).fetchall()
+        }
+
+        # 构建 SELECT 列表：REAL 字段加 CAST，TEXT 字段直接引
+        select_parts = []
+        target_parts = []
+        for col_name, col_type in duck_cols:
+            if col_name not in sqlite_names:
+                continue
+            if col_type.upper() in ("REAL", "FLOAT", "DOUBLE"):
+                # SQLite TEXT → DuckDB BLOB → CAST VARCHAR → FLOAT
+                select_parts.append(f'CAST(CAST("{col_name}" AS VARCHAR) AS REAL) AS "{col_name}"')
+            else:
+                select_parts.append(f'"{col_name}"')
+            target_parts.append(f'"{col_name}"')
+
+        if not select_parts:
+            print(f"  ⚠ {table}: 无共有列，跳过")
+            continue
+
+        col_list = ", ".join(target_parts)
+        select_list = ", ".join(select_parts)
+
+        sql = f'INSERT INTO "{table}" ({col_list}) SELECT {select_list} FROM {cat}."{table}"'
+        duck_conn.execute(sql)
+
+        cnt = duck_conn.execute(f'SELECT count(*) FROM "{table}"').fetchone()[0]
         elapsed = time.time() - t0
-        result[table] = {"rows": n, "elapsed_s": round(elapsed, 2)}
-        print(f"  {table:20s} {n:>10} 行 ({elapsed:.1f}s)")
-    conn.close()
+        result[table] = {"rows": cnt, "elapsed_s": round(elapsed, 2)}
+        print(f"  {table:20s} {cnt:>10} 行 ({elapsed:.1f}s)")
+
+    duck_conn.execute(f"DETACH {cat}")
     return result
 
 
-def migrate_history(duck: DatabaseManager, data_dir: Path) -> dict:
-    """迁移 history.db → market_a"""
-    sqlite_path = str(data_dir / "history.db")
-    if not Path(sqlite_path).exists():
-        return {"status": "skipped", "reason": f"{sqlite_path} 不存在"}
-
-    conn = duck.get_market()
-    t0 = time.time()
-    n = _copy_table(sqlite_path, conn, "daily_bars")
-    elapsed = time.time() - t0
-    conn.close()
-    result = {"daily_bars": {"rows": n, "elapsed_s": round(elapsed, 2)}}
-    print(f"  daily_bars          {n:>10} 行 ({elapsed:.1f}s)")
-    return result
-
-
-def migrate_simulator(duck: DatabaseManager, data_dir: Path) -> dict:
-    """迁移 simulator.db → research"""
-    sqlite_path = str(data_dir / "simulator.db")
-    if not Path(sqlite_path).exists():
-        return {"status": "skipped", "reason": f"{sqlite_path} 不存在"}
-
-    tables = ["strategies", "run_batches", "equity_curves", "positions", "trades"]
-
-    conn = duck.get_research()
-    result = {}
-    for table in tables:
-        t0 = time.time()
-        n = _copy_table(sqlite_path, conn, table)
-        elapsed = time.time() - t0
-        result[table] = {"rows": n, "elapsed_s": round(elapsed, 2)}
-        print(f"  {table:20s} {n:>10} 行 ({elapsed:.1f}s)")
-    conn.close()
-    return result
-
-
-def verify_counts(duck: DatabaseManager) -> bool:
+def verify_counts(duck: DatabaseManager, sqlite_dir: Path) -> bool:
     """核对迁移后行数与 SQLite 一致。"""
-    data_dir = Path(duck.data_dir)
     all_ok = True
 
     checks = [
-        ("market_overview_a", data_dir / "tushare.db"),
-        ("market_a", data_dir / "history.db"),
-        ("research", data_dir / "simulator.db"),
+        ("market_overview_a", sqlite_dir / "tushare.db"),
+        ("market_a", sqlite_dir / "history.db"),
+        ("research", sqlite_dir / "simulator.db"),
     ]
 
     for db_name, sqlite_path in checks:
@@ -178,14 +142,16 @@ def verify_counts(duck: DatabaseManager) -> bool:
     return all_ok
 
 
-def main(data_dir: str | None = None) -> int:
-    if data_dir is None:
-        data_dir = str(Path(__file__).resolve().parent.parent / "data")
+def main() -> int:
+    repo_root = Path(__file__).resolve().parent.parent.parent
+    data_path = repo_root / "tbot" / "data"
+    data_path.mkdir(parents=True, exist_ok=True)
 
-    data_path = Path(data_dir).resolve()
-    if not data_path.exists():
-        print(f"[错误] 数据目录不存在: {data_path}")
-        return 1
+    # SQLite 源数据
+    sqlite_dir = repo_root / "data"
+    if not (sqlite_dir / "tushare.db").exists():
+        # 可能在 worktree，指向主仓库
+        sqlite_dir = Path("/home/timwang/Documents/workspace/tradebot_workspace/vnpy/data")
 
     duck = DatabaseManager(str(data_path))
 
@@ -193,19 +159,32 @@ def main(data_dir: str | None = None) -> int:
     print("初始化 DuckDB 表...")
     init_all_schemas(duck)
 
-    # 迁移
+    # ── 迁移 market_overview_a ──
     print("\n迁移 tushare.db → market_overview_a:")
-    r1 = migrate_tushare(duck, data_path)
+    conn = duck.get_overview()
+    tables_overview = [
+        "ind_fundflow", "limit_up_pool", "mkt_fundflow",
+        "stock_fundflow", "stock_company", "ths_concept", "ths_member",
+    ]
+    _attach_and_copy(str(sqlite_dir / "tushare.db"), conn, "market_overview_a", tables_overview, "src")
+    conn.close()
 
+    # ── 迁移 market_a ──
     print("\n迁移 history.db → market_a:")
-    r2 = migrate_history(duck, data_path)
+    conn = duck.get_market()
+    _attach_and_copy(str(sqlite_dir / "history.db"), conn, "market_a", ["daily_bars"], "hist")
+    conn.close()
 
+    # ── 迁移 research ──
     print("\n迁移 simulator.db → research:")
-    r3 = migrate_simulator(duck, data_path)
+    conn = duck.get_research()
+    tables_research = ["strategies", "run_batches", "equity_curves", "positions", "trades"]
+    _attach_and_copy(str(sqlite_dir / "simulator.db"), conn, "research", tables_research, "sim")
+    conn.close()
 
-    # 验证
+    # ── 验证 ──
     print("\n核对数据量...")
-    ok = verify_counts(duck)
+    ok = verify_counts(duck, sqlite_dir)
 
     print(f"\n{'='*50}")
     if ok:

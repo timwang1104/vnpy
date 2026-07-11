@@ -92,7 +92,7 @@ CREATE TABLE IF NOT EXISTS ths_member (
 
 SCHEMA_DAILY_BARS = """
 CREATE TABLE IF NOT EXISTS daily_bars (
-    symbol      TEXT,
+    ts_code     TEXT,
     trade_date  TEXT,
     open        REAL,
     high        REAL,
@@ -100,7 +100,7 @@ CREATE TABLE IF NOT EXISTS daily_bars (
     close       REAL,
     volume      REAL,
     amount      REAL,
-    PRIMARY KEY (symbol, trade_date)
+    PRIMARY KEY (ts_code, trade_date)
 );
 """
 
