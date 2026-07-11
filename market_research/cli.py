@@ -33,6 +33,8 @@ def main(argv: list[str] | None = None) -> None:
                          help="Override snapshot date YYYYMMDD")
     build_p.add_argument("--out", default="report",
                          help="Output report directory (default: report)")
+    build_p.add_argument("--concept-graph", action="store_true",
+                         help="Run AI concept clustering (slow)")
 
     # serve
     serve_p = sub.add_parser("serve", help="Start HTTP server for report directory")
@@ -42,8 +44,8 @@ def main(argv: list[str] | None = None) -> None:
                          help="Starting port, incremented if busy (default: 8765)")
     serve_p.add_argument("--no-browser", action="store_true",
                          help="Do not open browser automatically")
-    serve_p.add_argument("--db-path", default=None,
-                         help="Path to tushare.db for live API (default: none, static only)")
+    serve_p.add_argument("--db-path", default="data/tushare.db",
+                         help="Path to tushare.db for live API (default: data/tushare.db)")
     serve_p.add_argument("--sim-db", default=None,
                          help="Path to simulator.db for paper-trading API (default: none)")
 
@@ -61,8 +63,10 @@ def main(argv: list[str] | None = None) -> None:
                        help="Starting port, incremented if busy (default: 8765)")
     run_p.add_argument("--no-browser", action="store_true",
                        help="Do not open browser automatically")
-    run_p.add_argument("--db-path", default=None,
-                       help="Path to tushare.db for live API (default: none)")
+    run_p.add_argument("--concept-graph", action="store_true",
+                       help="Run AI concept clustering (slow)")
+    run_p.add_argument("--db-path", default="data/tushare.db",
+                       help="Path to tushare.db for live API (default: data/tushare.db)")
     run_p.add_argument("--sim-db", default=None,
                        help="Path to simulator.db for paper-trading API (default: none)")
 
@@ -70,7 +74,8 @@ def main(argv: list[str] | None = None) -> None:
 
     if args.command == "build":
         try:
-            build(args.db, args.out, window=args.window, date=args.date)
+            build(args.db, args.out, window=args.window, date=args.date,
+                  concept=args.concept_graph)
         except FileNotFoundError as e:
             print(f"[market_research] 错误: {e}", file=sys.stderr)
             sys.exit(1)
@@ -90,7 +95,8 @@ def main(argv: list[str] | None = None) -> None:
 
     elif args.command == "run":
         try:
-            build(args.db, args.out, window=args.window, date=args.date)
+            build(args.db, args.out, window=args.window, date=args.date,
+                  concept=args.concept_graph)
             print()
             serve(args.out, port=args.port, no_browser=args.no_browser,
                   db_path=args.db_path, sim_db=args.sim_db)

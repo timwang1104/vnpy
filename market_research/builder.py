@@ -3,13 +3,12 @@
 from __future__ import annotations
 
 import json
-import os
-import shutil
 import sqlite3
 from datetime import datetime, time
 from pathlib import Path
 
 from market_research.compute.calendar import build_calendar
+from market_research.compute.concept_cluster import compute_concept_graph
 from market_research.compute.ind_fundflow import compute_ind_fundflow
 from market_research.compute.limitup import compute_limitup_history
 from market_research.compute.overview import compute_overview
@@ -78,15 +77,16 @@ def build(
     out_dir: str | Path,
     window: int = 240,
     date: str | None = None,
+    concept: bool = False,
 ) -> None:
     """执行 build：调 compute/* 写 report 目录。
 
     产物:
-        report/index.html（模板拷贝）
         report/data/calendar.json
         report/data/industry.json
         report/data/limitup_main.json
         report/data/limitup/<date>.json (每日期)
+        report/data/concept_graph.json (可选，需 --concept)
     """
     db_path = Path(db_path)
     out_dir = Path(out_dir)
@@ -171,22 +171,24 @@ def build(
         json.dump(calendar, f, ensure_ascii=False)
     print(f"  → calendar.json ({calendar['meta']['count']} 个交易日)")
 
-    # ---------- 拷贝 index.html ----------
-    template_src = (
-        Path(__file__).parent / "report" / "templates" / "index.html"
-    )
-    if template_src.exists():
-        shutil.copy2(template_src, out_dir / "index.html")
-        print("  → index.html")
-
-    # ---------- 拷贝 static ----------
-    static_src = Path(__file__).parent / "report" / "static"
-    static_dst = out_dir / "static"
-    if static_src.exists():
-        static_dst.mkdir(parents=True, exist_ok=True)
-        for fname in os.listdir(str(static_src)):
-            shutil.copy2(static_src / fname, static_dst / fname)
-        print("  → static/ (css, js)")
+    # ---------- 概念力导向图（需加 --concept 标志） ----------
+    if concept:
+        print("[market_research] 生成概念聚合图（AI Agent）...")
+        try:
+            concept_graph = compute_concept_graph(
+                db_path=db_path,
+                date=snapshot_date,
+                mode="concept",
+            )
+            if concept_graph is not None:
+                concept_graph["meta"]["generated_at"] = datetime.now().isoformat()
+                with open(data_dir / "concept_graph.json", "w", encoding="utf-8") as f:
+                    json.dump(concept_graph, f, ensure_ascii=False)
+                print(f"  → concept_graph.json ({concept_graph['meta']['n_concepts']} 个概念)")
+            else:
+                print("  ∼ concept_graph.json 无数据（可能 AI API 未配置或当日无涨停）")
+        except Exception as e:
+            print(f"  ∼ concept_graph.json 生成跳过: {e}")
 
     db.close()
     print(f"\n[market_research] Build 完成 → {out_dir.resolve()}")

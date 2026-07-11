@@ -461,8 +461,8 @@ def compute_concept_graph(
 
     conn.close()
 
-    # 分批调用：5 只一批，避免 AI 处理太多标的
-    batch_size = 5
+    # 分批调用：20 只一批，避免 AI 处理太多标的
+    batch_size = 20
     all_results: list[dict[str, Any]] = []
 
     for start in range(0, len(stocks), batch_size):
@@ -589,7 +589,7 @@ def main() -> None:
         c, m = update_concept_db(conn)
 
         conn.close()
-        print(f"\n[concept_cluster] DB 更新完成:")
+        print("\n[concept_cluster] DB 更新完成:")
         print(f"  stock_company: {s} 行")
         print(f"  ths_concept:   {c} 个概念")
         print(f"  ths_member:    {m} 条归属")
