@@ -1,0 +1,278 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>市场研究 — tbot</title>
+<link rel="stylesheet" href="static/style.css">
+</head>
+<body>
+<!-- 概览条 (由 overview.js 填充) -->
+<header id="overview-bar"></header>
+
+<!-- 左侧 Tab 侧边栏 -->
+<div id="page-layout">
+  <aside id="tab-sidebar" class="tab-sidebar">
+    <div class="tab-sidebar-inner">
+      <a href="#industry" class="tab-link active" data-label="行业资金流">
+        <span class="tab-icon">
+          <svg viewBox="0 0 24 24" width="20" height="20">
+            <rect x="3" y="3" width="7" height="7" rx="1" fill="currentColor" opacity="0.4"/>
+            <rect x="12" y="3" width="9" height="7" rx="1" fill="currentColor" opacity="0.7"/>
+            <rect x="3" y="12" width="7" height="9" rx="1" fill="currentColor" opacity="0.6"/>
+            <rect x="12" y="12" width="9" height="9" rx="1" fill="currentColor"/>
+          </svg>
+        </span>
+        <span class="tab-label">行业资金流</span>
+      </a>
+      <a href="#limitup" class="tab-link" data-label="涨停池">
+        <span class="tab-icon">
+          <svg viewBox="0 0 24 24" width="20" height="20">
+            <line x1="4" y1="20" x2="20" y2="20" stroke="currentColor" stroke-width="2" stroke-linecap="round"/>
+            <polyline points="12,4 6,12 10,12 10,18 14,18 14,12 18,12" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
+          </svg>
+        </span>
+        <span class="tab-label">涨停池</span>
+      </a>
+      <a href="#fundflow" class="tab-link" data-label="行业时序">
+        <span class="tab-icon">
+          <svg viewBox="0 0 24 24" width="20" height="20">
+            <polyline points="3,18 9,12 13,15 21,5" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
+            <circle cx="21" cy="5" r="2" fill="currentColor"/>
+          </svg>
+        </span>
+        <span class="tab-label">行业时序</span>
+      </a>
+      <a href="#simulator" class="tab-link" data-label="模拟盘">
+        <span class="tab-icon">
+          <svg viewBox="0 0 24 24" width="20" height="20">
+            <polygon points="8,5 19,12 8,19" fill="currentColor"/>
+          </svg>
+        </span>
+        <span class="tab-label">模拟盘</span>
+      </a>
+      <a href="#updater" class="tab-link" data-label="更新管理">
+        <span class="tab-icon">
+          <svg viewBox="0 0 24 24" width="20" height="20">
+            <path d="M1 12a11 11 0 0 1 22 0 11 11 0 0 1-22 0z" fill="none" stroke="currentColor" stroke-width="1.5"/>
+            <path d="M12 6v6l4 2" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/>
+          </svg>
+        </span>
+        <span class="tab-label">更新管理</span>
+      </a>
+    </div>
+    <button class="tab-sidebar-pin" id="tab-sidebar-pin" title="固定侧边栏">
+      <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+        <path d="M12 2v4M16 2v4M8 2v4"/>
+        <path d="M3 6h18"/>
+        <path d="M8 6v10c0 .6.4 1 1 1h6c.6 0 1-.4 1-1V6"/>
+        <path d="M10 17v4M14 17v4"/>
+      </svg>
+    </button>
+  </aside>
+
+  <!-- Tab 内容 (由各 page 模块注入) -->
+  <main id="main-content">
+    <section id="industry" class="tab-content active"></section>
+    <section id="limitup" class="tab-content"></section>
+    <section id="fundflow" class="tab-content"></section>
+    <section id="simulator" class="tab-content"></section>
+    <section id="updater" class="tab-content"></section>
+  </main>
+</div>
+
+<!-- 浮动聊天按钮 -->
+<button id="chat-fab" class="chat-fab" title="AI 助手" aria-label="打开 AI 助手">
+  <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+    <path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/>
+  </svg>
+</button>
+
+<!-- 侧边栏抽屉 -->
+<aside id="chat-panel" class="chat-panel hidden">
+  <div class="chat-panel-header">
+    <div class="chat-panel-title">
+      <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+        <path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/>
+      </svg>
+      <span>AI 助手</span>
+    </div>
+    <div class="chat-panel-controls">
+      <select id="chat-agent-select" class="chat-agent-select" title="切换 AI 引擎">
+        <option value="claude">Claude Code</option>
+        <option value="hermes">Hermes Agent</option>
+      </select>
+      <button id="chat-close-btn" class="chat-close-btn" title="关闭侧边栏">✕</button>
+    </div>
+  </div>
+
+  <div id="chat-messages" class="chat-messages">
+    <div class="chat-welcome">
+      <p>选择 AI 引擎后输入问题，开始信息搜寻。</p>
+      <p class="text-muted">当前上下文会自动注入，让 AI 了解你正在查看的内容。</p>
+    </div>
+  </div>
+
+  <div class="chat-input-area">
+    <input type="text" id="chat-input" class="chat-input" placeholder="输入问题…" />
+    <button id="chat-send-btn" class="chat-send-btn" disabled>发送</button>
+  </div>
+</aside>
+
+<script src="https://cdn.jsdelivr.net/npm/echarts@5.6.0/dist/echarts.min.js"></script>
+<script src="static/shared.js"></script>
+<script src="pages/overview.js"></script>
+<script>
+/**
+ * tbot page loader — 动态加载页面模块
+ *
+ * 在 shared.js + overview.js 之后执行。
+ * overview.js 立即初始化概览栏；其余 page 模块按需加载。
+ *
+ * shared.js 已建立 hash 路由：
+ *   1. 首次加载若 hash 为空则设为 #industry
+ *   2. 每次 hashchange 调用 activateTab → __onTabActivate
+ *
+ * 本脚本定义 __onTabActivate，按需加载对应的 page 模块 JS。
+ */
+
+(function () {
+  'use strict';
+
+  // 立即初始化概览栏
+  if (typeof window.initOverview === 'function') {
+    window.initOverview('overview-bar');
+  }
+
+  // ==================== 模块注册表 ====================
+
+  /**
+   * 每项：{ script, initFn, container }
+   * - script:    page JS 文件名（无路径后缀）
+   * - initFn:    window 上暴露的初始化函数名
+   * - container: 初始化时传入的容器 ID
+   */
+  var REGISTRY = {
+    industry: { script: 'industry', initFn: 'initIndustry', container: 'industry' },
+    limitup:  { script: 'limitup',  initFn: 'initLimitup',  container: 'limitup'  },
+    fundflow: { script: 'industry', initFn: 'initIndustry', container: 'industry' },
+    simulator:{ script: 'simulator',initFn: 'initSimulator',container: 'simulator' },
+    updater:  { script: 'updater',  initFn: 'initUpdater',  container: 'updater'  },
+  };
+
+  // ==================== 加载状态 ====================
+
+  /** @type {Object<string,Promise>} 正在加载中的脚本 Promise */
+  var _loading = {};
+
+  /** @type {Object<string,boolean>} 已初始化完成的 tab */
+  var _inited  = {};
+
+  // ==================== 脚本加载器 ====================
+
+  /**
+   * 动态加载 page 脚本（缓存）。
+   * @param {string} name — 模块名（对应 pages/{name}.js）
+   * @returns {Promise}
+   */
+  function loadScript(name) {
+    if (_loading[name]) return _loading[name];
+    _loading[name] = new Promise(function (resolve) {
+      var s = document.createElement('script');
+      s.src = 'pages/' + name + '.js';
+      s.onload  = function () { resolve(); };
+      s.onerror = function () {
+        console.error('[loader] 加载 ' + name + '.js 失败');
+        resolve();  // 不阻塞后续流程
+      };
+      document.body.appendChild(s);
+    });
+    return _loading[name];
+  }
+
+  // ==================== 侧边栏固定按钮 ====================
+
+  document.getElementById('tab-sidebar-pin').addEventListener('click', function () {
+    document.body.classList.toggle('sidebar-pinned');
+  });
+
+  // ==================== Tab 激活钩子 ====================
+
+  window.__onTabActivate = function (id) {
+    var entry = REGISTRY[id];
+    if (!entry) {
+      console.warn('[loader] 未知 tab:', id);
+      return;
+    }
+
+    // ----- fundflow 特殊处理（与 industry 共享同一模块） -----
+
+    if (id === 'fundflow') {
+      loadScript('industry').then(function () {
+        // 首次加载时 initIndustry 注入到 #industry
+        if (!_inited.industry) {
+          _inited.industry = true;
+          if (typeof window.initIndustry === 'function') {
+            window.initIndustry('industry');
+          }
+        }
+        // 确保 #industry 可见（#fundflow 为空，由 shared.js 激活，
+        // 但此处覆盖确保 industry 区域显示）
+        document.getElementById('industry').classList.add('active');
+        document.getElementById('fundflow').classList.remove('active');
+        // 滚动到行业时序控件区域
+        setTimeout(function () {
+          var el = document.getElementById('ff-industry-select') ||
+                   document.getElementById('chart-fundflow');
+          if (el) el.scrollIntoView({ behavior: 'smooth', block: 'start' });
+        }, 350);
+      });
+      return;
+    }
+
+    // ----- 常规 Tab -----
+
+    var scriptName = entry.script;
+
+    loadScript(scriptName).then(function () {
+      if (_inited[scriptName]) return;
+      var fn = window[entry.initFn];
+      if (typeof fn !== 'function') {
+        // 模块加载成功但 init 函数尚未就绪（极罕见），等下一次 activate
+        return;
+      }
+      _inited[scriptName] = true;
+      fn(entry.container);
+    });
+  };
+
+  // ==================== AI 助手侧边栏 ====================
+
+  // 聊天 Fab / 面板 事件绑定（与 shared.js 协调）
+  // 由各模块独立管理，此处只做基础 wire
+
+  (function initChatPanel() {
+    var fab     = document.getElementById('chat-fab');
+    var panel   = document.getElementById('chat-panel');
+    var closeBtn= document.getElementById('chat-close-btn');
+    if (!fab || !panel || !closeBtn) return;
+
+    fab.addEventListener('click', function () {
+      panel.classList.toggle('hidden');
+      if (!panel.classList.contains('hidden')) {
+        // 打开后触发 ECharts resize
+        if (window.__shared && window.__shared.resizeCharts) {
+          setTimeout(window.__shared.resizeCharts, 300);
+        }
+      }
+    });
+
+    closeBtn.addEventListener('click', function () {
+      panel.classList.add('hidden');
+    });
+  })();
+
+})();
+</script>
+</body>
+</html>

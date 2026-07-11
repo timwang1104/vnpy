@@ -1,3 +1,5 @@
+> **注意：此模块已迁移至 `tbot/`。** 所有功能已重构至 TBot 项目，采用新的分层架构（engines、business、ui、api）。请参见 `tbot/` 获取最新代码。本目录仅作参考保留，不再积极维护。
+
 # Market Research
 
 独立市场研究工作台，为 vnpy 仓库的数据资产（`ind_fundflow` / `limit_up_pool` / `mkt_fundflow`）提供**预生成报告 + 本地静态 server**，浏览器访问。

@@ -1,0 +1,17 @@
+# TBot 默认配置
+database:
+  data_dir: data
+  market: market_a.db
+  overview: market_overview_a
+  research: research.db
+  config: config.db
+
+server:
+  host: 127.0.0.1
+  port: 8765
+  report_dir: report
+
+tushare:
+  token_env: TUSHARE_API_KEY
+  proxy_env: TUSHARE_BASE_URL
+  proxy_default: https://tt.xiaodefa.cn
