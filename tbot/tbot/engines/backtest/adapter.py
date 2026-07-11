@@ -6,8 +6,8 @@
 
 用法::
 
-    from tbot.tbot.engines.backtest.adapter import DuckDuckLab
-    from tbot.tbot.engines.database.manager import DatabaseManager
+    from tbot.engines.backtest.adapter import DuckDuckLab
+    from tbot.engines.database.manager import DatabaseManager
 
     lab = DuckDuckLab("data")
     bars = lab.load_bar_data("000001.SZ", Interval.DAILY, start, end)
@@ -24,7 +24,7 @@ from vnpy.trader.constant import Interval
 from vnpy.trader.object import BarData
 from vnpy.trader.utility import extract_vt_symbol
 
-from tbot.tbot.engines.database.manager import DatabaseManager
+from tbot.engines.database.manager import DatabaseManager
 
 # ── 模块级日志 ────────────────────────────────────────
 

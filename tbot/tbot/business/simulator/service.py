@@ -5,8 +5,8 @@
 为 router 层提供策略注册、回测运行、权益/持仓/成交查询。
 
 Usage:
-    from tbot.tbot.engines.database.manager import DatabaseManager
-    from tbot.tbot.business.simulator.service import SimulatorService
+    from tbot.engines.database.manager import DatabaseManager
+    from tbot.business.simulator.service import SimulatorService
 
     mgr = DatabaseManager("data")
     svc = SimulatorService(mgr)
@@ -27,9 +27,9 @@ from typing import Any
 
 import duckdb
 
-from tbot.tbot.engines.backtest.models import BarData
-from tbot.tbot.engines.backtest.strategy_base import SimStrategyBase
-from tbot.tbot.engines.database.manager import DatabaseManager
+from tbot.engines.backtest.models import BarData
+from tbot.engines.backtest.strategy_base import SimStrategyBase
+from tbot.engines.database.manager import DatabaseManager
 
 logger = logging.getLogger("tbot.simulator")
 

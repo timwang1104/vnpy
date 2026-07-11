@@ -15,14 +15,12 @@ import threading
 from collections.abc import AsyncGenerator
 from typing import Any
 
-from market_research.update_manager.cron import (
+from tbot.business.data_update.cron import (
     install_cron as _install_cron,
     remove_cron as _remove_cron,
     show_cron_info as _cron_status,
 )
-from market_research.update_manager.updater import (
-    DEFAULT_HISTORY_DB,
-    DEFAULT_TUSHARE_DB,
+from tbot.business.data_update.updater import (
     get_log_lines,
     get_status as _updater_status,
     register_log_callback,

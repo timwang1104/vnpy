@@ -79,11 +79,11 @@ def create_app(db_mgr: DatabaseManager | None = None) -> FastAPI:
     register_routes(app)
 
     # ------------------------------------------------------------------
-    # 静态文件
+    # 静态文件（根路径）
     # ------------------------------------------------------------------
     if _REPORT_DIR.is_dir():
         app.mount(
-            "/report",
+            "/",
             StaticFiles(directory=str(_REPORT_DIR), html=True),
             name="report",
         )

@@ -3,8 +3,8 @@
 
 Usage:
     from fastapi import FastAPI
-    from tbot.tbot.engines.database.manager import DatabaseManager
-    from tbot.tbot.business.simulator import SimulatorService, create_simulator_router
+    from tbot.engines.database.manager import DatabaseManager
+    from tbot.business.simulator import SimulatorService, create_simulator_router
 
     app = FastAPI()
     mgr = DatabaseManager("data")
@@ -18,7 +18,7 @@ from typing import Any
 
 from fastapi import APIRouter, HTTPException
 
-from tbot.tbot.business.simulator.service import SimulatorService
+from tbot.business.simulator.service import SimulatorService
 
 # ── Router factory ──────────────────────────────────────────────
 

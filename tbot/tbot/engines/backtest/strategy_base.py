@@ -2,13 +2,13 @@
 """回测策略基类，复制自 market_research.simulator.strategy_base.SimStrategyBase。
 
 用法:
-    from tbot.tbot.engines.backtest.strategy_base import SimStrategyBase
-    from tbot.tbot.engines.backtest.models import BarData, Signal
+    from tbot.engines.backtest.strategy_base import SimStrategyBase
+    from tbot.engines.backtest.models import BarData, Signal
 """
 
 from __future__ import annotations
 
-from tbot.tbot.engines.backtest.models import BarData, Signal
+from tbot.engines.backtest.models import BarData, Signal
 
 
 class SimStrategyBase:

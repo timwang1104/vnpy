@@ -2,7 +2,7 @@
 """Data models for backtest engine.
 
 Usage:
-    from tbot.tbot.engines.backtest.models import BarData, Signal
+    from tbot.engines.backtest.models import BarData, Signal
 """
 
 from __future__ import annotations
