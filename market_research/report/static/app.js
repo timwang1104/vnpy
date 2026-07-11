@@ -77,6 +77,10 @@
     chatMessages: [],
     chatWaiting: false,
     chatContext: {},
+    // updater state
+    updPollTimer: null,
+    updSseSource: null,
+    updRunning: false,
   };
 
   // ==================== 路由 ====================
@@ -94,7 +98,7 @@
     }
     // resize charts on tab switch
     setTimeout(() => {
-      ['heatChart','icChart','quintChart','rankChart','ltChart','fundflowChart','simChart','conceptChart'].forEach(k => {
+      ['heatChart','icChart','quintChart','rankChart','ltChart','fundflowChart','simChart','conceptChart','updChart'].forEach(k => {
         if (STATE[k]) STATE[k].resize();
       });
     }, 50);
@@ -122,154 +126,9 @@
     ];
     bar.innerHTML = items.map(it =>
       `<div class="ov-item"><div class="ov-label">${it.label}</div><div class="ov-value ${it.cls||''}">${it.value}</div></div>`
-    ).join('') +
-      `<button id="ov-update-btn" class="ov-update-btn" title="更新数据到数据库后重建报告">🔄 更新数据</button>`;
+    ).join('');
     // update chat context when overview loads
     if (typeof updateChatContext === 'function') updateChatContext();
-  }
-
-  // ==================== 数据更新 ====================
-
-  var UPDATE_BTN, UPDATE_MODAL, UPDATE_LOG, UPDATE_BADGE, UPDATE_PROGRESS, UPDATE_RELOAD;
-
-  function initUpdateUI() {
-    UPDATE_BTN = document.getElementById('ov-update-btn');
-    UPDATE_MODAL = document.getElementById('update-modal');
-    UPDATE_LOG = document.getElementById('update-log-output');
-    UPDATE_BADGE = document.getElementById('update-status-badge');
-    UPDATE_PROGRESS = document.getElementById('update-progress-fill');
-    UPDATE_RELOAD = document.getElementById('update-reload-btn');
-
-    if (!UPDATE_BTN) return;
-
-    // 单击按钮：
-    //   - 空闲 → 启动更新（后台，不弹框）
-    //   - 运行中 → 打开日志框查看进度
-    //   - 已完成/失败 → 打开日志框查看详情
-    UPDATE_BTN.addEventListener('click', onUpdateBtnClick);
-    document.getElementById('update-modal-close').addEventListener('click', closeUpdateModal);
-    document.getElementById('update-modal-close-btn').addEventListener('click', closeUpdateModal);
-    if (UPDATE_RELOAD) UPDATE_RELOAD.addEventListener('click', function () { location.reload(); });
-
-    // 轮询检测其它标签页触发的更新
-    pollRunningUpdate();
-  }
-
-  function onUpdateBtnClick() {
-    if (UPDATE_BTN.disabled) {
-      // 正在运行 → 打开日志框
-      openUpdateModal();
-      return;
-    }
-    // 空闲或已完成 → 启动新更新（后台，不弹框）
-    triggerUpdate();
-  }
-
-  async function pollRunningUpdate() {
-    try {
-      var resp = await fetch('/api/data/update/status');
-      var state = await resp.json();
-      if (state.status === 'running') {
-        setUpdateBtnState('running');
-        connectUpdateSSE();  // 后台监听完成事件
-      }
-    } catch (e) { /* server 可能不支持该端点 */ }
-    // 每 30 秒再检查一次
-    setTimeout(pollRunningUpdate, 30000);
-  }
-
-  function showUpdateToast(msg, type) {
-    var t = document.createElement('div');
-    t.className = 'update-toast' + (type ? ' ' + type : '');
-    t.textContent = msg;
-    document.body.appendChild(t);
-    setTimeout(function () { if (t.parentNode) t.parentNode.removeChild(t); }, 3000);
-  }
-
-  async function triggerUpdate() {
-    setUpdateBtnState('running');
-    UPDATE_BADGE.textContent = '⏳ 运行中';
-    UPDATE_BADGE.className = 'update-badge running';
-    if (UPDATE_PROGRESS) UPDATE_PROGRESS.className = 'update-progress-fill running';
-    UPDATE_LOG.textContent = '';
-    UPDATE_RELOAD.style.display = 'none';
-
-    // 后台启动，不弹模态框
-    showUpdateToast('🔄 更新已启动，后台运行中', 'info');
-
-    try {
-      var resp = await fetch('/api/data/update', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ build: true }) });
-      var result = await resp.json();
-      if (result.status === 'error') {
-        appendUpdateLog('[错误] ' + (result.message || '启动失败'));
-        setUpdateBtnState('done error');
-        UPDATE_BADGE.textContent = '✗ 失败';
-        UPDATE_BADGE.className = 'update-badge error';
-        if (UPDATE_PROGRESS) UPDATE_PROGRESS.className = 'update-progress-fill error';
-        showUpdateToast('✗ 更新启动失败', 'error');
-        return;
-      }
-      connectUpdateSSE();
-    } catch (e) {
-      appendUpdateLog('[错误] 请求失败: ' + e.message);
-      setUpdateBtnState('done error');
-      UPDATE_BADGE.textContent = '✗ 失败';
-      UPDATE_BADGE.className = 'update-badge error';
-      if (UPDATE_PROGRESS) UPDATE_PROGRESS.className = 'update-progress-fill error';
-      showUpdateToast('✗ 更新请求失败', 'error');
-    }
-  }
-
-  function connectUpdateSSE() {
-    var evtSource = new EventSource('/api/data/update/log');
-
-    evtSource.onmessage = function (e) {
-      appendUpdateLog(e.data);
-    };
-
-    evtSource.addEventListener('complete', function () {
-      setUpdateBtnState('done');
-      UPDATE_BADGE.textContent = '✓ 完成';
-      UPDATE_BADGE.className = 'update-badge done';
-      if (UPDATE_PROGRESS) UPDATE_PROGRESS.className = 'update-progress-fill done';
-      if (UPDATE_RELOAD) UPDATE_RELOAD.style.display = 'inline-block';
-      evtSource.close();
-      showUpdateToast('✅ 更新完成', 'success');
-    });
-
-    evtSource.addEventListener('error', function () {
-      setUpdateBtnState('done error');
-      UPDATE_BADGE.textContent = '✗ 失败';
-      UPDATE_BADGE.className = 'update-badge error';
-      if (UPDATE_PROGRESS) UPDATE_PROGRESS.className = 'update-progress-fill error';
-      if (UPDATE_RELOAD) UPDATE_RELOAD.style.display = 'inline-block';
-      evtSource.close();
-      showUpdateToast('✗ 更新失败', 'error');
-    });
-  }
-
-  function appendUpdateLog(line) {
-    if (!UPDATE_LOG) return;
-    UPDATE_LOG.textContent += line + '\n';
-    UPDATE_LOG.scrollTop = UPDATE_LOG.scrollHeight;
-  }
-
-  function openUpdateModal() {
-    if (UPDATE_MODAL) UPDATE_MODAL.classList.remove('hidden');
-  }
-
-  function closeUpdateModal() {
-    if (UPDATE_MODAL) UPDATE_MODAL.classList.add('hidden');
-  }
-
-  function setUpdateBtnState(state) {
-    if (!UPDATE_BTN) return;
-    UPDATE_BTN.disabled = (state === 'running');
-    UPDATE_BTN.className = 'ov-update-btn' + (state ? ' ' + state : '');
-    UPDATE_BTN.textContent = state === 'running' ? '⏳ 更新中...' :
-                             state === 'done' ? '✓ 已更新' :
-                             state === 'done error' ? '✗ 更新失败' :
-                             '🔄 更新数据';
   }
 
   // ==================== Tab1: 行业资金流 ====================
@@ -967,6 +826,74 @@
         el.innerHTML = '<p style="color:var(--text-secondary);text-align:center;padding:40px">概念数据未就绪（运行 concept_cluster.py 生成）</p>';
         console.info('concept graph not available:', err.message);
       });
+  }
+
+  // ==================== 概念图生成按钮 ====================
+
+  function initConceptGenerateBtn() {
+    var btn = document.getElementById('btn-generate-concept');
+    var statusEl = document.getElementById('concept-gen-status');
+    if (!btn) return;
+
+    btn.addEventListener('click', async function () {
+      if (btn.disabled) return;
+      btn.disabled = true;
+      btn.textContent = '⏳ 生成中…';
+      statusEl.textContent = '正在调用 AI 生成概念图…';
+      statusEl.style.color = 'var(--accent-yellow)';
+
+      try {
+        var resp = await fetch('/api/concept/generate', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ mode: 'concept' }),
+        });
+        var result = await resp.json();
+
+        if (result.status === 'error') {
+          statusEl.textContent = '✗ 失败: ' + (result.message || 'unknown');
+          statusEl.style.color = 'var(--accent-red)';
+          btn.disabled = false;
+          btn.textContent = '🤖 生成概念图';
+          return;
+        }
+
+        if (result.n_concepts === 0) {
+          statusEl.textContent = '∼ 当日涨停无可用概念数据';
+          statusEl.style.color = 'var(--text-secondary)';
+        } else {
+          statusEl.textContent = '✓ 已生成 ' + result.n_concepts + ' 个概念（' + (result.date || '') + '）';
+          statusEl.style.color = 'var(--accent-green)';
+        }
+
+        // 重新加载概念图
+        STATE.conceptGraph = null;
+        var limitupDate = STATE.limitupDate;
+        if (limitupDate) {
+          var stockCodes = new Set();
+          var limitup = STATE.limitup;
+          if (limitup && limitup.by_date && limitup.by_date[limitupDate] &&
+              limitup.by_date[limitupDate].tables &&
+              limitup.by_date[limitupDate].tables.tiers) {
+            var tiers = limitup.by_date[limitupDate].tables.tiers;
+            for (var ti = 0; ti < tiers.length; ti++) {
+              var members = tiers[ti].members || [];
+              for (var mi = 0; mi < members.length; mi++) {
+                if (members[mi].ts_code) stockCodes.add(members[mi].ts_code);
+              }
+            }
+          }
+          renderConceptGraph(limitupDate, stockCodes);
+        }
+
+      } catch (e) {
+        statusEl.textContent = '✗ 请求失败: ' + e.message;
+        statusEl.style.color = 'var(--accent-red)';
+      } finally {
+        btn.disabled = false;
+        btn.textContent = '🤖 生成概念图';
+      }
+    });
   }
 
   // ==================== Tab3: 行业时序 ====================
@@ -1977,6 +1904,258 @@
     if (el) el.remove();
   }
 
+  // ==================== Tab5: 更新管理 ====================
+
+  function initUpdaterTab() {
+    // 初始状态查询
+    refreshUpdaterStatus();
+
+    // 启动更新按钮
+    document.getElementById('upd-trigger-btn').addEventListener('click', function () {
+      if (this.disabled) return;
+      triggerUpdaterUpdate();
+    });
+
+    // 刷新页面按钮
+    document.getElementById('upd-reload-btn').addEventListener('click', function () {
+      location.reload();
+    });
+
+    // Cron 按钮
+    document.getElementById('upd-cron-install').addEventListener('click', async function () {
+      try {
+        var resp = await fetch('/api/data/cron/install', { method: 'POST' });
+        var data = await resp.json();
+        if (data.status === 'ok') {
+          document.getElementById('upd-cron-status').textContent = '已注册';
+        } else {
+          document.getElementById('upd-cron-status').textContent = '注册失败';
+        }
+      } catch (e) {
+        document.getElementById('upd-cron-status').textContent = '请求失败';
+      }
+      refreshCronStatus();
+    });
+
+    document.getElementById('upd-cron-remove').addEventListener('click', async function () {
+      try {
+        var resp = await fetch('/api/data/cron/remove', { method: 'POST' });
+        var data = await resp.json();
+        if (data.status === 'ok') {
+          document.getElementById('upd-cron-status').textContent = '未注册';
+        } else {
+          document.getElementById('upd-cron-status').textContent = '移除失败';
+        }
+      } catch (e) {
+        document.getElementById('upd-cron-status').textContent = '请求失败';
+      }
+      refreshCronStatus();
+    });
+  }
+
+  function refreshUpdaterStatus() {
+    fetch('/api/data/update/status')
+      .then(function (r) { return r.json(); })
+      .then(function (state) {
+        updateUpdaterUI(state);
+        refreshCronStatus();
+      })
+      .catch(function () {
+        // server may not support this endpoint
+      });
+  }
+
+  function refreshCronStatus() {
+    fetch('/api/data/cron/status')
+      .then(function (r) { return r.json(); })
+      .then(function (info) {
+        var el = document.getElementById('upd-cron-status');
+        if (info.registered) {
+          el.textContent = '✅ 已注册';
+          el.className = 'updater-value upd-status-done';
+        } else {
+          el.textContent = '未注册';
+          el.className = 'updater-value upd-status-idle';
+        }
+      })
+      .catch(function () {
+        document.getElementById('upd-cron-status').textContent = '查询失败';
+      });
+  }
+
+  function updateUpdaterUI(state) {
+    var statusEl = document.getElementById('upd-status');
+    var startedEl = document.getElementById('upd-started');
+    var elapsedEl = document.getElementById('upd-elapsed');
+    var progressLabel = document.getElementById('upd-progress-label');
+    var progressFill = document.getElementById('upd-progress-fill');
+    var triggerBtn = document.getElementById('upd-trigger-btn');
+    var reloadBtn = document.getElementById('upd-reload-btn');
+    var lastResultsEl = document.getElementById('upd-last-results');
+
+    // Status
+    var statusMap = {
+      'idle': { text: '就绪', cls: 'upd-status-idle' },
+      'running': { text: '⏳ 运行中', cls: 'upd-status-running' },
+      'completed': { text: '✅ 已完成', cls: 'upd-status-done' },
+      'error': { text: '❌ 失败', cls: 'upd-status-error' },
+    };
+    var s = statusMap[state.status] || { text: state.status, cls: 'upd-status-idle' };
+    statusEl.textContent = s.text;
+    statusEl.className = 'updater-value ' + s.cls;
+
+    // Started
+    if (state.started_at) {
+      startedEl.textContent = state.started_at.slice(0, 19);
+    } else {
+      startedEl.textContent = '—';
+    }
+
+    // Progress
+    if (state.progress && state.progress.label) {
+      progressLabel.textContent = state.progress.label + ' (' + state.progress.current + '/' + state.progress.total + ')';
+    } else {
+      progressLabel.textContent = '—';
+    }
+
+    // Progress bar
+    if (state.status === 'running') {
+      progressFill.className = 'update-progress-fill running';
+    } else if (state.status === 'completed') {
+      progressFill.className = 'update-progress-fill done';
+    } else if (state.status === 'error') {
+      progressFill.className = 'update-progress-fill error';
+    } else {
+      progressFill.className = 'update-progress-fill';
+      progressFill.style.width = '0%';
+    }
+
+    // Buttons
+    if (state.status === 'running') {
+      triggerBtn.disabled = true;
+      triggerBtn.textContent = '⏳ 运行中…';
+      STATE.updRunning = true;
+    } else {
+      triggerBtn.disabled = false;
+      triggerBtn.textContent = '🔄 启动更新';
+      STATE.updRunning = false;
+    }
+    reloadBtn.style.display = (state.status === 'completed' || state.status === 'error') ? 'inline-block' : 'none';
+
+    // Elapsed time (approximate)
+    if (state.status === 'running' && state.started_at) {
+      var started = new Date(state.started_at);
+      var elapsed = Math.floor((Date.now() - started.getTime()) / 1000);
+      elapsedEl.textContent = elapsed + 's';
+      if (!STATE.updPollTimer) {
+        STATE.updPollTimer = setInterval(function () {
+          if (STATE.updRunning) {
+            var s = new Date(state.started_at);
+            var e = Math.floor((Date.now() - s.getTime()) / 1000);
+            document.getElementById('upd-elapsed').textContent = e + 's';
+          } else {
+            clearInterval(STATE.updPollTimer);
+            STATE.updPollTimer = null;
+          }
+        }, 1000);
+      }
+    } else if (state.finished_at && state.started_at) {
+      var s = new Date(state.started_at);
+      var f = new Date(state.finished_at);
+      var elapsed = Math.floor((f.getTime() - s.getTime()) / 1000);
+      elapsedEl.textContent = elapsed + 's';
+    } else {
+      elapsedEl.textContent = '—';
+    }
+
+    // Last results
+    if (state.last_results && state.last_results.length > 0) {
+      var html = '<table class="data-table"><thead><tr><th>表</th><th>写入</th><th>成功天数</th><th>失败天数</th><th>总数</th></tr></thead><tbody>';
+      for (var i = 0; i < state.last_results.length; i++) {
+        var r = state.last_results[i];
+        var table = r.table || r.status || '—';
+        var inserted = r.inserted || r.concept_count || 0;
+        var okDays = r.ok_days || r.ok_stocks || 0;
+        var failDays = r.fail_days || r.fail_stocks || 0;
+        var total = r.total || 0;
+        if (r.status === 'ok') {
+          html += '<tr><td>' + table + '</td><td>' + inserted + '</td><td>' + okDays + '</td><td>' + failDays + '</td><td>' + total + '</td></tr>';
+        }
+      }
+      html += '</tbody></table>';
+      lastResultsEl.innerHTML = html;
+    } else {
+      lastResultsEl.innerHTML = '';
+    }
+  }
+
+  async function triggerUpdaterUpdate() {
+    var triggerBtn = document.getElementById('upd-trigger-btn');
+    triggerBtn.disabled = true;
+    triggerBtn.textContent = '⏳ 启动中…';
+
+    try {
+      var resp = await fetch('/api/data/update', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ build: true }),
+      });
+      var result = await resp.json();
+
+      if (result.status === 'error') {
+        appendUpdaterLog('[错误] ' + (result.message || '启动失败'));
+        triggerBtn.disabled = false;
+        triggerBtn.textContent = '🔄 启动更新';
+        return;
+      }
+
+      // 连接 SSE
+      connectUpdaterSSE();
+      // 刷新状态
+      refreshUpdaterStatus();
+    } catch (e) {
+      appendUpdaterLog('[错误] 请求失败: ' + e.message);
+      triggerBtn.disabled = false;
+      triggerBtn.textContent = '🔄 启动更新';
+    }
+  }
+
+  function connectUpdaterSSE() {
+    // 关闭旧连接
+    if (STATE.updSseSource) {
+      STATE.updSseSource.close();
+    }
+
+    var logEl = document.getElementById('upd-log-output');
+    logEl.textContent = '';
+
+    var evtSource = new EventSource('/api/data/update/log');
+    STATE.updSseSource = evtSource;
+
+    evtSource.onmessage = function (e) {
+      appendUpdaterLog(e.data);
+    };
+
+    evtSource.addEventListener('complete', function () {
+      refreshUpdaterStatus();
+      STATE.updSseSource = null;
+      appendUpdaterLog('\n[完成] 数据更新已完成');
+    });
+
+    evtSource.addEventListener('error', function () {
+      refreshUpdaterStatus();
+      STATE.updSseSource = null;
+      appendUpdaterLog('\n[错误] 更新异常终止');
+    });
+  }
+
+  function appendUpdaterLog(line) {
+    var el = document.getElementById('upd-log-output');
+    if (!el) return;
+    el.textContent += line + '\n';
+    el.scrollTop = el.scrollHeight;
+  }
+
   // ==================== 主入口 ====================
   async function init() {
     try {
@@ -2048,8 +2227,11 @@
       // 初始化聊天
       initChat();
 
-      // 初始化数据更新按钮
-      initUpdateUI();
+      // 初始化更新管理面板
+      initUpdaterTab();
+
+      // 初始化概念图生成按钮
+      initConceptGenerateBtn();
 
     } catch (e) {
       console.error('初始化失败:', e);
