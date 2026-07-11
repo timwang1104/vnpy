@@ -1,0 +1,305 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>市场研究</title>
+<link rel="stylesheet" href="static/style.css?v=3">
+</head>
+<body>
+<!-- 概览条 -->
+<header id="overview-bar"></header>
+
+<!-- 左侧 Tab 侧边栏 -->
+<div id="page-layout">
+  <aside id="tab-sidebar" class="tab-sidebar">
+    <div class="tab-sidebar-inner">
+      <a href="#industry" class="tab-link active" data-label="行业资金流">
+        <span class="tab-icon">
+          <svg viewBox="0 0 24 24" width="20" height="20">
+            <rect x="3" y="3" width="7" height="7" rx="1" fill="currentColor" opacity="0.4"/>
+            <rect x="12" y="3" width="9" height="7" rx="1" fill="currentColor" opacity="0.7"/>
+            <rect x="3" y="12" width="7" height="9" rx="1" fill="currentColor" opacity="0.6"/>
+            <rect x="12" y="12" width="9" height="9" rx="1" fill="currentColor"/>
+          </svg>
+        </span>
+        <span class="tab-label">行业资金流</span>
+      </a>
+      <a href="#limitup" class="tab-link" data-label="涨停池">
+        <span class="tab-icon">
+          <svg viewBox="0 0 24 24" width="20" height="20">
+            <line x1="4" y1="20" x2="20" y2="20" stroke="currentColor" stroke-width="2" stroke-linecap="round"/>
+            <polyline points="12,4 6,12 10,12 10,18 14,18 14,12 18,12" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
+          </svg>
+        </span>
+        <span class="tab-label">涨停池</span>
+      </a>
+      <a href="#fundflow" class="tab-link" data-label="行业时序">
+        <span class="tab-icon">
+          <svg viewBox="0 0 24 24" width="20" height="20">
+            <polyline points="3,18 9,12 13,15 21,5" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
+            <circle cx="21" cy="5" r="2" fill="currentColor"/>
+          </svg>
+        </span>
+        <span class="tab-label">行业时序</span>
+      </a>
+      <a href="#simulator" class="tab-link" data-label="模拟盘">
+        <span class="tab-icon">
+          <svg viewBox="0 0 24 24" width="20" height="20">
+            <polygon points="8,5 19,12 8,19" fill="currentColor"/>
+          </svg>
+        </span>
+        <span class="tab-label">模拟盘</span>
+      </a>
+      <a href="#updater" class="tab-link" data-label="更新管理">
+        <span class="tab-icon">
+          <svg viewBox="0 0 24 24" width="20" height="20">
+            <path d="M1 12a11 11 0 0 1 22 0 11 11 0 0 1-22 0z" fill="none" stroke="currentColor" stroke-width="1.5"/>
+            <path d="M12 6v6l4 2" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/>
+          </svg>
+        </span>
+        <span class="tab-label">更新管理</span>
+      </a>
+    </div>
+    <button class="tab-sidebar-pin" id="tab-sidebar-pin" title="固定侧边栏">
+      <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+        <path d="M12 2v4M16 2v4M8 2v4"/>
+        <path d="M3 6h18"/>
+        <path d="M8 6v10c0 .6.4 1 1 1h6c.6 0 1-.4 1-1V6"/>
+        <path d="M10 17v4M14 17v4"/>
+      </svg>
+    </button>
+  </aside>
+
+  <!-- Tab 内容 -->
+  <main id="main-content">
+  <!-- Tab1: 行业资金流 -->
+  <section id="industry" class="tab-content active">
+    <div class="chart-box">
+      <h3>行业 × 日期 的 md_share 热力图</h3>
+      <div id="chart-heat" class="chart-container"></div>
+    </div>
+    <div class="chart-box">
+      <h3>最新交易日截面排名</h3>
+      <div id="chart-rank" class="chart-container" style="height:500px"></div>
+    </div>
+    <div class="chart-box">
+      <h3>前瞻 IC 时序 (md_share vs 未来5日收益)</h3>
+      <div id="chart-ic" class="chart-container" style="height:280px"></div>
+    </div>
+    <div class="chart-box">
+      <h3>五分组前瞻超额收益</h3>
+      <div id="chart-quint" class="chart-container" style="height:300px"></div>
+    </div>
+  </section>
+
+  <!-- Tab2: 涨停池 -->
+  <section id="limitup" class="tab-content">
+    <div class="date-row">
+      <button id="btn-prev-day" class="btn">‹ 上一日</button>
+      <div class="date-picker" id="date-picker">
+        <span id="limitup-current-date" class="current-date dp-trigger">—</span>
+        <div class="dp-popup" id="dp-popup">
+          <div class="dp-header">
+            <button class="dp-nav" id="dp-prev-month" type="button">‹</button>
+            <span id="dp-month-year">—</span>
+            <button class="dp-nav" id="dp-next-month" type="button">›</button>
+          </div>
+          <div class="dp-weekdays"><span>日</span><span>一</span><span>二</span><span>三</span><span>四</span><span>五</span><span>六</span></div>
+          <div class="dp-days" id="dp-days"></div>
+        </div>
+      </div>
+      <button id="btn-next-day" class="btn">下一日 ›</button>
+    </div>
+    <div class="chart-box">
+      <h3>涨停概况</h3>
+      <div id="limitup-day-content"></div>
+    </div>
+    <div class="chart-box">
+      <h3>概念聚合（力导向图）
+        <button id="btn-generate-concept" class="btn btn-sm" style="margin-left:12px">🤖 生成概念图</button>
+        <span id="concept-gen-status" class="text-muted" style="margin-left:8px;font-size:12px"></span>
+      </h3>
+      <div id="chart-concept-graph" class="chart-container" style="height:500px"></div>
+    </div>
+    <div class="chart-box">
+      <h3>连板高度时序</h3>
+      <div id="chart-limitup" class="chart-container" style="height:200px"></div>
+    </div>
+  </section>
+
+  <!-- Tab3: 行业时序 -->
+  <section id="fundflow" class="tab-content">
+    <div class="control-row">
+      <label for="ff-industry-select">行业:</label>
+      <select id="ff-industry-select" class="ff-select"></select>
+      <label for="ff-mode-select" style="margin-left:16px">指标:</label>
+      <select id="ff-mode-select" class="ff-select">
+        <option value="raw">中单净额（亿元）</option>
+        <option value="share">归一化 md_share</option>
+        <option value="zscore">Z-score（60日滚动）</option>
+      </select>
+    </div>
+    <!-- 异常行业提示区 -->
+    <div id="ff-anomaly-banner" class="anomaly-banner">
+      <div class="anomaly-banner-header">
+        <span class="anomaly-title">🔴 异常行业检测</span>
+        <div class="anomaly-threshold-group">
+          <label>阈值 |z|&gt;</label>
+          <button class="anomaly-threshold-btn" data-t="1.5">1.5</button>
+          <button class="anomaly-threshold-btn active" data-t="2.0">2.0</button>
+          <button class="anomaly-threshold-btn" data-t="2.5">2.5</button>
+          <button class="anomaly-threshold-btn" data-t="3.0">3.0</button>
+          <input type="number" id="ff-threshold-input" class="ff-threshold-input" value="2.0" step="0.1" min="1" max="5">
+        </div>
+        <span class="anomaly-meta" id="ff-anomaly-meta"></span>
+      </div>
+      <div class="anomaly-items" id="ff-anomaly-items"></div>
+    </div>
+    <div class="chart-box">
+      <h3 id="ff-chart-title">行业时序</h3>
+      <div id="chart-fundflow" class="chart-container" style="height:450px"></div>
+    </div>
+  </section>
+
+  <!-- Tab4: 模拟盘 -->
+  <section id="simulator" class="tab-content">
+    <div class="sim-header">
+      <h3>策略列表</h3>
+      <button id="btn-sim-discover" class="btn">刷新策略</button>
+    </div>
+
+    <div id="sim-strategy-list" class="sim-strategy-list">
+      <!-- 由 app.js 动态渲染 -->
+      <p class="text-muted">加载中…</p>
+    </div>
+
+    <div id="sim-result-area" style="margin-top:20px">
+      <!-- 策略运行结果展示（动态渲染） -->
+      <div id="sim-result-header" class="sim-result-header" style="display:none">
+        <h3>运行结果</h3>
+        <div id="sim-result-summary" class="sim-result-summary"></div>
+      </div>
+      <div id="sim-result-charts">
+        <div class="chart-box">
+          <h4>权益曲线</h4>
+          <div id="chart-sim-equity" class="chart-container" style="height:350px"></div>
+        </div>
+      </div>
+      <div class="sim-tables" style="display:flex;gap:20px;flex-wrap:wrap">
+        <div class="chart-box" style="flex:1;min-width:300px">
+          <h4>持仓列表</h4>
+          <div id="sim-positions-table" class="sim-table-wrap"></div>
+        </div>
+        <div class="chart-box" style="flex:1;min-width:400px">
+          <h4>交易记录</h4>
+          <div id="sim-trades-table" class="sim-table-wrap"></div>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- Tab5: 更新管理 -->
+  <section id="updater" class="tab-content">
+    <div class="chart-box">
+      <h3>数据更新</h3>
+      <div class="updater-status-row">
+        <div class="updater-status-item">
+          <span class="updater-label">状态</span>
+          <span id="upd-status" class="updater-value upd-status-idle">就绪</span>
+        </div>
+        <div class="updater-status-item">
+          <span class="updater-label">开始时间</span>
+          <span id="upd-started" class="updater-value">—</span>
+        </div>
+        <div class="updater-status-item">
+          <span class="updater-label">耗时</span>
+          <span id="upd-elapsed" class="updater-value">—</span>
+        </div>
+        <div class="updater-status-item">
+          <span class="updater-label">进度</span>
+          <span id="upd-progress-label" class="updater-value">—</span>
+        </div>
+      </div>
+      <div id="upd-progress-bar" class="update-progress-bar">
+        <div id="upd-progress-fill" class="update-progress-fill"></div>
+      </div>
+      <div class="updater-actions">
+        <button id="upd-trigger-btn" class="btn btn-primary">🔄 启动更新</button>
+        <button id="upd-reload-btn" class="btn" style="display:none">🔄 刷新页面</button>
+      </div>
+      <div id="upd-last-results" class="updater-results" style="margin-top:12px"></div>
+    </div>
+
+    <div class="chart-box">
+      <h3>定时任务</h3>
+      <div class="updater-status-row">
+        <div class="updater-status-item">
+          <span class="updater-label">状态</span>
+          <span id="upd-cron-status" class="updater-value">检查中…</span>
+        </div>
+        <div class="updater-status-item">
+          <span class="updater-label">表达式</span>
+          <span id="upd-cron-expr" class="updater-value">30 18 * * 1-5</span>
+        </div>
+        <div class="updater-status-item">
+          <span class="updater-label">说明</span>
+          <span class="updater-value">周一到周五 18:30</span>
+        </div>
+      </div>
+      <div class="updater-actions">
+        <button id="upd-cron-install" class="btn">注册定时任务</button>
+        <button id="upd-cron-remove" class="btn">移除定时任务</button>
+      </div>
+    </div>
+
+    <div class="chart-box">
+      <h3>更新日志</h3>
+      <pre id="upd-log-output" class="update-log"></pre>
+    </div>
+  </section>
+</main>
+</div>
+
+<!-- 浮动聊天按钮 -->
+<button id="chat-fab" class="chat-fab" title="AI 助手" aria-label="打开 AI 助手">
+  <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+    <path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/>
+  </svg>
+</button>
+
+<!-- 侧边栏抽屉 -->
+<aside id="chat-panel" class="chat-panel hidden">
+  <div class="chat-panel-header">
+    <div class="chat-panel-title">
+      <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+        <path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/>
+      </svg>
+      <span>AI 助手</span>
+    </div>
+    <div class="chat-panel-controls">
+      <select id="chat-agent-select" class="chat-agent-select" title="切换 AI 引擎">
+        <option value="claude">Claude Code</option>
+        <option value="hermes">Hermes Agent</option>
+      </select>
+      <button id="chat-close-btn" class="chat-close-btn" title="关闭侧边栏">✕</button>
+    </div>
+  </div>
+
+  <div id="chat-messages" class="chat-messages">
+    <div class="chat-welcome">
+      <p>选择 AI 引擎后输入问题，开始信息搜寻。</p>
+      <p class="text-muted">当前上下文会自动注入，让 AI 了解你正在查看的内容。</p>
+    </div>
+  </div>
+
+  <div class="chat-input-area">
+    <input type="text" id="chat-input" class="chat-input" placeholder="输入问题…" />
+    <button id="chat-send-btn" class="chat-send-btn" disabled>发送</button>
+  </div>
+</aside>
+
+<script src="https://cdn.jsdelivr.net/npm/echarts@5.6.0/dist/echarts.min.js"></script>
+<script src="static/app.js?v=3"></script>
+</body>
+</html>

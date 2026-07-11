@@ -1,0 +1,30 @@
+[project]
+name = "market_research"
+version = "0.1.0"
+description = "Pre-generated market research reports for vnpy data assets (ind_fundflow, limit_up_pool, mkt_fundflow)"
+requires-python = ">=3.10"
+dependencies = [
+    "fastapi>=0.110",
+    "uvicorn>=0.29",
+    "tushare>=1.12",
+]
+
+[project.optional-dependencies]
+build = ["exchange_calendars>=4.5"]
+dev = [
+    "ruff",
+    "mypy",
+]
+
+[project.scripts]
+market_research = "market_research.cli:main"
+
+[tool.setuptools.packages.find]
+include = ["market_research", "market_research.*"]
+
+[tool.setuptools.package-data]
+"market_research" = ["report/templates/*", "report/static/*"]
+
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
