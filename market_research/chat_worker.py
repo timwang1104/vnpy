@@ -20,7 +20,6 @@ from __future__ import annotations
 import asyncio
 import json
 import re
-import shlex
 from typing import Any
 
 from fastapi import WebSocket, WebSocketDisconnect
@@ -97,6 +96,30 @@ def _parse_hermes_output(stdout: str) -> dict[str, Any]:
     text = re.sub(r"^session_id:\s*\S+\s*\n?", "", text).strip()
 
     return {"text": text.strip(), "session_id": session_id}
+
+
+# ---------------------------------------------------------------------------
+# Agent 配置
+# ---------------------------------------------------------------------------
+
+_AGENT_SPEC = {
+    "claude": {"parser": _parse_claude_output, "display": "Claude Code"},
+    "hermes": {"parser": _parse_hermes_output, "display": "Hermes Agent"},
+}
+
+
+def _build_agent_cmd(agent_name: str, prompt: str,
+                      session_id: str | None) -> list[str]:
+    """根据 agent 名称构建 CLI 命令。"""
+    if agent_name == "claude":
+        cmd = [ChatWorker.CLAUDE_CMD, "-p", prompt, "--output-format", "json"]
+        if session_id:
+            cmd += ["--resume", session_id]
+    else:  # hermes
+        cmd = [ChatWorker.HERMES_CMD, "chat", "-q", prompt, "-Q", "-s", "tool"]
+        if session_id:
+            cmd += ["-r", session_id]
+    return cmd
 
 
 class ChatWorker:
@@ -193,30 +216,24 @@ class ChatWorker:
         self._cancel_event.clear()
 
         try:
-            if agent == "claude":
-                await self._run_claude(message, context)
-            elif agent == "hermes":
-                await self._run_hermes(message, context)
+            if agent in _AGENT_SPEC:
+                await self._run_agent(message, context, agent)
             else:
                 await self.send_json({"type": "error", "message": f"不支持的 agent: {agent}"})
         finally:
             self._running = False
 
-    async def _run_claude(self, message: str, context: dict[str, Any]) -> None:
-        """调用 claude -p --output-format json。"""
-        context_prefix = _format_context(context)
-        if context_prefix:
-            prompt = f"{context_prefix}\n{message}"
-        else:
-            prompt = message
+    async def _run_agent(self, message: str, context: dict[str, Any],
+                          agent_name: str) -> None:
+        """调用 agent CLI（claude / hermes）并流式输出。"""
+        spec = _AGENT_SPEC[agent_name]
 
-        cmd = [
-            self.CLAUDE_CMD,
-            "-p", prompt,
-            "--output-format", "json",
-        ]
-        if self.session_id:
-            cmd += ["--resume", self.session_id]
+        context_prefix = _format_context(context)
+        prompt = f"{context_prefix}\n{message}" if context_prefix else message
+
+        cmd = _build_agent_cmd(agent_name, prompt, self.session_id)
+        display = spec["display"]
+        parser = spec["parser"]
 
         try:
             proc = await asyncio.create_subprocess_exec(
@@ -236,7 +253,7 @@ class ChatWorker:
                 await proc.wait()
                 await self.send_json({
                     "type": "error",
-                    "message": "Claude Code 超时（30s），请简化问题后重试",
+                    "message": f"{display} 超时（30s），请简化问题后重试",
                 })
                 return
 
@@ -244,93 +261,11 @@ class ChatWorker:
             stderr = stderr_bytes.decode("utf-8", errors="replace")
 
             if proc.returncode != 0:
-                err_msg = stderr.strip() or f"Claude Code 异常退出（code={proc.returncode}）"
+                err_msg = stderr.strip() or f"{display} 异常退出（code={proc.returncode}）"
                 await self.send_json({"type": "error", "message": err_msg})
                 return
 
-            parsed = _parse_claude_output(stdout)
-            text = parsed.get("text", "")
-            sid = parsed.get("session_id")
-
-            if sid:
-                self.session_id = sid
-
-            if text:
-                # 流式输出：按句分割，模拟流式推送
-                chunks = self._split_into_chunks(text)
-                for chunk in chunks:
-                    if self._cancel_event.is_set():
-                        await self.send_json({"type": "error", "message": "已取消"})
-                        return
-                    await self.send_json({"type": "chunk", "data": chunk})
-                    await asyncio.sleep(0.01)  # 小延迟让前端有节奏感
-
-            await self.send_json({
-                "type": "done",
-                "session_id": self.session_id or "",
-                "agent": "claude",
-            })
-
-        except FileNotFoundError:
-            await self.send_json({
-                "type": "error",
-                "message": "Claude Code CLI 未安装，请确认 `claude` 命令可用",
-            })
-        except Exception as e:
-            await self.send_json({
-                "type": "error",
-                "message": f"Claude Code 调用异常: {e}",
-            })
-
-    async def _run_hermes(self, message: str, context: dict[str, Any]) -> None:
-        """调用 hermes chat -q -Q。"""
-        context_prefix = _format_context(context)
-        if context_prefix:
-            prompt = f"{context_prefix}\n{message}"
-        else:
-            prompt = message
-
-        cmd = [
-            self.HERMES_CMD,
-            "chat",
-            "-q", prompt,
-            "-Q",
-            "-s", "tool",
-        ]
-        if self.session_id:
-            cmd += ["-r", self.session_id]
-
-        try:
-            proc = await asyncio.create_subprocess_exec(
-                *cmd,
-                stdin=asyncio.subprocess.DEVNULL,
-                stdout=asyncio.subprocess.PIPE,
-                stderr=asyncio.subprocess.PIPE,
-            )
-
-            try:
-                stdout_bytes, stderr_bytes = await asyncio.wait_for(
-                    proc.communicate(),
-                    timeout=self.TIMEOUT,
-                )
-            except asyncio.TimeoutError:
-                proc.kill()
-                await proc.wait()
-                await self.send_json({
-                    "type": "error",
-                    "message": "Hermes Agent 超时（30s），请简化问题后重试",
-                })
-                return
-
-            stdout = stdout_bytes.decode("utf-8", errors="replace")
-            stderr = stderr_bytes.decode("utf-8", errors="replace")
-
-            if proc.returncode != 0:
-                err_msg = stderr.strip() or f"Hermes Agent 异常退出（code={proc.returncode}）"
-                await self.send_json({"type": "error", "message": err_msg})
-                return
-
-            parsed = _parse_hermes_output(stdout)
+            parsed = parser(stdout)
             text = parsed.get("text", "")
             sid = parsed.get("session_id")
 
@@ -349,18 +284,18 @@ class ChatWorker:
             await self.send_json({
                 "type": "done",
                 "session_id": self.session_id or "",
-                "agent": "hermes",
+                "agent": agent_name,
             })
 
         except FileNotFoundError:
             await self.send_json({
                 "type": "error",
-                "message": "Hermes Agent 未安装，请确认 `hermes` 命令可用",
+                "message": f"{display} CLI 未安装，请确认 `{self.CLAUDE_CMD if agent_name == 'claude' else self.HERMES_CMD}` 命令可用",
             })
         except Exception as e:
             await self.send_json({
                 "type": "error",
-                "message": f"Hermes Agent 调用异常: {e}",
+                "message": f"{display} 调用异常: {e}",
             })
 
     @staticmethod

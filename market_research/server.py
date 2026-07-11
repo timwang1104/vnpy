@@ -1,23 +1,26 @@
 # SPDX-License-Identifier: MIT
-"""FastAPI StaticFiles server + industry timeseries API + simulator API — 托管 report 目录，端口 8765（被占递增）。
+"""FastAPI StaticFiles server + industry timeseries API + simulator API + data update API — 托管 report 目录，端口 8765（被占递增）。
 
 用法:
-    serve("report")                                          # 纯静态（向后兼容）
-    serve("report", db_path="data/tushare.db")               # 静态 + 行业 API
-    serve("report", db_path="data/tushare.db",               # 静态 + 行业 + 模拟盘
-          sim_db="data/simulator.db")
+    serve()                                                    # 默认 market_research/report/
+    serve(report_dir="path/to/report")                         # 指定目录
+    serve(db_path="data/tushare.db")                           # 静态 + 行业 API
+    serve(db_path="data/tushare.db", sim_db="data/sim.db")    # 静态 + 行业 + 模拟盘
 """
 from __future__ import annotations
 
+import asyncio
 import json as json_module
 import socket
 import sqlite3
+import threading
 import webbrowser
+from datetime import datetime
 from pathlib import Path
 
 import uvicorn
-from fastapi import FastAPI, HTTPException, WebSocket
-from fastapi.responses import FileResponse
+from fastapi import Body, FastAPI, HTTPException, WebSocket
+from fastapi.responses import FileResponse, StreamingResponse
 from fastapi.staticfiles import StaticFiles
 
 
@@ -31,6 +34,34 @@ def find_free_port(start: int = 8765, max_tries: int = 20) -> int:
             except OSError:
                 continue
     raise RuntimeError(f"无法找到空闲端口 (从 {start} 试了 {max_tries} 个)")
+
+
+# ==================== 数据更新状态管理（委托 update_manager） ====================
+
+from market_research.update_manager import (  # noqa: E402
+    run_update as um_run_update,
+    get_status as um_get_status,
+    get_log_lines as um_get_log_lines,
+    clear_log as um_clear_log,
+)
+
+_update_log_lock = threading.Lock()
+
+
+def _run_update_in_thread(tushare_db: str, history_db: str, do_build: bool) -> None:
+    """在后台线程中调用 update_manager.run_update()。"""
+    # 直接在子线程调用，run_update 内部管理状态/日志/锁
+    try:
+        um_run_update(
+            tushare_db=tushare_db,
+            history_db=history_db,
+            since=datetime.now().strftime("%Y%m%d"),
+            do_build=do_build,
+        )
+    except Exception as e:
+        print(f"[CRITICAL] _run_update_in_thread error: {e}", flush=True)
+        import traceback
+        traceback.print_exc()
 
 
 # ==================== API helpers ====================
@@ -444,7 +475,8 @@ def _add_simulator_routes(
 
 
 def _build_app(report_dir: Path, db: sqlite3.Connection | None,
-               sim_db: str | None = None) -> FastAPI:
+               sim_db: str | None = None,
+               db_path: str | Path | None = None) -> FastAPI:
     """构建 FastAPI app（静态文件 + 可选的 API）。"""
     app = FastAPI(title="Market Research")
 
@@ -473,6 +505,149 @@ def _build_app(report_dir: Path, db: sqlite3.Connection | None,
     # --- 模拟盘 API ---
     if sim_db:
         _add_simulator_routes(app, sim_db, _DEFAULT_HISTORY_DB)
+
+    # --- 数据更新 API ---
+    repo_root = Path(__file__).resolve().parent.parent
+    default_tushare = str(repo_root / "data" / "tushare.db")
+    default_history = str(repo_root / "data" / "history.db")
+
+    @app.post("/api/data/update")
+    async def api_data_update(body: dict = Body(default=None)):  # noqa: B008
+        """触发一次数据更新（异步执行）。"""
+        try:
+            status = um_get_status()
+            if status["status"] == "running":
+                return {"status": "error", "message": "更新正在进行中"}
+
+            body = body or {}
+            do_build = body.get("build", True)
+
+            # 启动前清日志
+            um_clear_log()
+
+            thread = threading.Thread(
+                target=_run_update_in_thread,
+                args=(body.get("tushare_db", default_tushare),
+                      body.get("history_db", default_history),
+                      do_build),
+                daemon=True,
+            )
+            thread.start()
+
+            return {"status": "ok", "message": "更新已启动"}
+        except Exception as e:
+            import traceback
+            print(f"[CRITICAL] api_data_update error: {e}", flush=True)
+            traceback.print_exc()
+            return {"status": "error", "message": str(e)}
+
+    @app.get("/api/data/update/status")
+    async def api_update_status():
+        """查询更新状态。"""
+        state = await asyncio.to_thread(um_get_status)
+        state["log_lines"] = len(await asyncio.to_thread(um_get_log_lines))
+        return state
+
+    @app.get("/api/data/update/log")
+    async def api_update_log():
+        """SSE 流式输出更新日志。"""
+        async def event_generator():
+            last_index = 0
+            terminated = False
+            while not terminated:
+                lines = await asyncio.to_thread(um_get_log_lines)
+                current_status = (await asyncio.to_thread(um_get_status))["status"]
+
+                new_lines = lines[last_index:]
+                last_index = len(lines)
+
+                for line in new_lines:
+                    yield f"data: {line}\n\n"
+
+                if current_status == "completed":
+                    yield "event: complete\ndata: __UPDATE_DONE__\n\n"
+                    return
+                elif current_status == "error":
+                    yield "event: error\ndata: __UPDATE_ERROR__\n\n"
+                    return
+                elif current_status == "idle":
+                    terminated = True
+                    break
+
+                await asyncio.sleep(0.3)
+
+        return StreamingResponse(
+            event_generator(),
+            media_type="text/event-stream",
+            headers={
+                "Cache-Control": "no-cache",
+                "Connection": "keep-alive",
+                "X-Accel-Buffering": "no",
+            },
+        )
+
+    # --- 数据更新 Cron API ---
+    from market_research.update_manager.cron import install_cron, remove_cron, show_cron_info
+
+    @app.post("/api/data/cron/install")
+    async def api_cron_install():
+        ok = install_cron()
+        return {"status": "ok" if ok else "error"}
+
+    @app.post("/api/data/cron/remove")
+    async def api_cron_remove():
+        ok = remove_cron()
+        return {"status": "ok" if ok else "error"}
+
+    @app.get("/api/data/cron/status")
+    async def api_cron_status():
+        return show_cron_info()
+
+    # --- 概念图生成 API ---
+
+    @app.post("/api/concept/generate")
+    async def api_concept_generate(body: dict = Body(default=None)):  # noqa: B008
+        """触发概念图生成（后台线程运行，不阻塞事件循环）。"""
+        if not db_path:
+            return {"status": "error", "message": "未指定数据库路径"}
+
+        body = body or {}
+        date = body.get("date") or None
+        mode = body.get("mode") or "concept"
+
+        from market_research.compute.concept_cluster import compute_concept_graph
+
+        loop = asyncio.get_event_loop()
+
+        def _generate():
+            return compute_concept_graph(
+                db_path=str(db_path),
+                date=date,
+                mode=mode,
+            )
+
+        try:
+            graph = await loop.run_in_executor(None, _generate)
+        except Exception as e:
+            import traceback
+            traceback.print_exc()
+            return {"status": "error", "message": str(e)}
+
+        if graph is None:
+            return {"status": "ok", "note": "无数据（当日无涨停或 AI API 未配置）",
+                    "n_concepts": 0}
+
+        graph["meta"]["generated_at"] = datetime.now().isoformat()
+        concept_path = report_dir / "data" / "concept_graph.json"
+        import json
+        with open(concept_path, "w", encoding="utf-8") as f:
+            json.dump(graph, f, ensure_ascii=False)
+
+        return {
+            "status": "ok",
+            "n_concepts": graph["meta"].get("n_concepts", 0),
+            "date": graph["meta"].get("date", ""),
+        }
 
     # --- 静态文件 ---
     static_dir = report_dir / "static"
@@ -508,7 +683,7 @@ def _build_app(report_dir: Path, db: sqlite3.Connection | None,
 # ==================== Serve entry ====================
 
 def serve(
-    report_dir: str | Path = "report",
+    report_dir: str | Path | None = None,
     port: int = 8765,
     no_browser: bool = False,
     db_path: str | Path | None = None,
@@ -517,13 +692,15 @@ def serve(
     """启动 FastAPI 服务。
 
     Args:
-        report_dir: report 目录路径
+        report_dir: report 目录路径（默认 market_research/report/）
         port: 起始端口，被占则递增
         no_browser: True 时不打开浏览器
         db_path: 可选，tushare.db 路径，提供时启用行业 API
         sim_db: 可选，simulator.db 路径，提供时启用模拟盘 API
     """
-    report_dir = Path(report_dir).resolve()
+    report_dir = Path(report_dir or (
+        Path(__file__).parent / "report"
+    )).resolve()
     if not report_dir.exists():
         raise FileNotFoundError(f"Report directory not found: {report_dir}")
 
@@ -535,8 +712,12 @@ def serve(
             db_path.parent.mkdir(parents=True, exist_ok=True)
             db_path.touch()
         db = sqlite3.connect(str(db_path))
+        # WAL + busy_timeout：允许并发写入，避免 update.py 写数据时报 "database is locked"
+        db.execute("PRAGMA journal_mode=WAL")
+        db.execute("PRAGMA busy_timeout=5000")
+        db.execute("PRAGMA synchronous=NORMAL")
 
-    app = _build_app(report_dir, db, sim_db=sim_db)
+    app = _build_app(report_dir, db, sim_db=sim_db, db_path=db_path)
     actual_port = find_free_port(start=port)
 
     url = f"http://127.0.0.1:{actual_port}/"

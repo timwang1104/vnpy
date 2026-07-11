@@ -12,9 +12,7 @@ import inspect
 import os
 import sqlite3
 import sys
-import time
 from pathlib import Path
-from typing import Dict, List, Optional, Tuple, Type
 
 from market_research.simulator.db_writer import DBWriter
 from market_research.simulator.models import BarData
@@ -112,7 +110,7 @@ class BatchEngine:
         print(f"[engine] 发现 {found} 个策略")
 
     def _register_strategy(
-        self, conn: sqlite3.Connection, cls: Type[SimStrategyBase]
+        self, conn: sqlite3.Connection, cls: type[SimStrategyBase]
     ) -> None:
         """将策略类写入 strategies 表（如已存在则跳过）"""
         cur = conn.cursor()
@@ -210,7 +208,7 @@ class BatchEngine:
         )
         return batch_id
 
-    def run_all(self, setting: dict | None = None) -> List[int]:
+    def run_all(self, setting: dict | None = None) -> list[int]:
         """运行所有已启用策略"""
         conn = sqlite3.connect(self.sim_db)
         cur = conn.cursor()
@@ -227,7 +225,7 @@ class BatchEngine:
 
     # ── 内部 ────────────────────────────────────────────
 
-    def _load_class(self, class_name: str) -> Type[SimStrategyBase] | None:
+    def _load_class(self, class_name: str) -> type[SimStrategyBase] | None:
         """从 strategies 目录按类名查找"""
         sys.path.insert(0, os.path.dirname(self.strategies_dir))
         strategy_dir = Path(self.strategies_dir)
@@ -293,9 +291,9 @@ class BatchEngine:
         strategy.on_init()
 
         # 前一天的收盘价（用于涨跌停判断）
-        prev_close_map: Dict[str, float] = {}
+        prev_close_map: dict[str, float] = {}
 
-        for i, date in enumerate(all_dates):
+        for _, date in enumerate(all_dates):
             strategy.current_date = date
 
             # 加载当日所有 bars
@@ -391,7 +389,7 @@ class BatchEngine:
         # 强制刷入
         writer.flush()
 
-    def _load_dates(self, start_date: str, end_date: str) -> List[str]:
+    def _load_dates(self, start_date: str, end_date: str) -> list[str]:
         """从 history.db 获取日期列表（升序）"""
         conn = sqlite3.connect(self.history_db)
         cur = conn.cursor()
@@ -405,7 +403,7 @@ class BatchEngine:
         conn.close()
         return dates
 
-    def _load_bars(self, date: str) -> Dict[str, BarData]:
+    def _load_bars(self, date: str) -> dict[str, BarData]:
         """加载某一天的日 K 线数据"""
         conn = sqlite3.connect(self.history_db)
         cur = conn.cursor()
@@ -414,7 +412,7 @@ class BatchEngine:
             "FROM daily_bars WHERE trade_date=?",
             (date,),
         )
-        bars: Dict[str, BarData] = {}
+        bars: dict[str, BarData] = {}
         for row in cur.fetchall():
             bars[row[0]] = BarData(
                 ts_code=row[0],

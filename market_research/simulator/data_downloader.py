@@ -15,7 +15,6 @@ import sqlite3
 import time
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from pathlib import Path
-from typing import List, Tuple
 
 import tushare as ts
 
@@ -77,7 +76,7 @@ class DataDownloader:
         conn.commit()
         conn.close()
 
-    def get_index_constituents(self, index_code: str = "000300.SH") -> List[str]:
+    def get_index_constituents(self, index_code: str = "000300.SH") -> list[str]:
         """获取指数最新成分股列表
 
         Args:
@@ -98,9 +97,9 @@ class DataDownloader:
             print(f"[downloader] 获取 {index_code} 成分股失败: {e}")
             return []
 
-    def get_all_constituents(self) -> List[str]:
+    def get_all_constituents(self) -> list[str]:
         """获取沪深300 + 中证500 所有成分股（去重）"""
-        all_codes: List[str] = []
+        all_codes: list[str] = []
         for name, code in INDEX_CODES.items():
             codes = self.get_index_constituents(code)
             print(f"[downloader] {name} ({code}): {len(codes)} 只成分股")
@@ -108,7 +107,7 @@ class DataDownloader:
         # 去重（沪深300和中证500可能有重叠）
         return sorted(set(all_codes))
 
-    def get_trading_days(self, start_date: str, end_date: str) -> List[str]:
+    def get_trading_days(self, start_date: str, end_date: str) -> list[str]:
         """获取交易日列表
 
         Args:
@@ -130,7 +129,7 @@ class DataDownloader:
 
     def get_missing_dates(
         self, ts_code: str, start_date: str, end_date: str
-    ) -> Tuple[str, str] | None:
+    ) -> tuple[str, str] | None:
         """检查股票在指定日期范围内缺失的起止日期。
 
         Returns:
@@ -362,7 +361,7 @@ class DataDownloader:
             return
 
         # 从最近交易日开始倒查，找缺失的
-        missing: List[str] = []
+        missing: list[str] = []
         for day in reversed(trading_days):
             conn = sqlite3.connect(self.history_db)
             cur = conn.execute(

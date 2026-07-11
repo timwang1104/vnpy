@@ -13,7 +13,6 @@ Parameters:
 from __future__ import annotations
 
 from collections import defaultdict
-from typing import Dict, List
 
 from market_research.simulator.models import BarData
 from market_research.simulator.strategy_base import SimStrategyBase
@@ -57,12 +56,12 @@ class MaCrossStrategy(SimStrategyBase):
         super().__init__(strategy_id, setting)
 
         # 缓存每只股票的历史收盘价
-        self._history: Dict[str, List[float]] = defaultdict(list)
+        self._history: dict[str, list[float]] = defaultdict(list)
 
         # 信号计数（展示用）
         self.signal_counts = {"buy": 0, "sell": 0}
 
-    def on_bars(self, date: str, bars: Dict[str, BarData]) -> None:
+    def on_bars(self, date: str, bars: dict[str, BarData]) -> None:
         """每日回调：计算均线，金叉买入，死叉卖出"""
         for ts_code, bar in bars.items():
             if bar.close <= 0:

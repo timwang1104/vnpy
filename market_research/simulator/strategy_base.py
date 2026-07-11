@@ -8,7 +8,6 @@ Usage:
 
 from __future__ import annotations
 
-from typing import Dict, List
 
 from market_research.simulator.models import BarData, Signal
 
@@ -32,8 +31,8 @@ class SimStrategyBase:
     """
 
     author: str = ""
-    parameters: List[dict] = []
-    variables: List[str] = []
+    parameters: list[dict] = []
+    variables: list[str] = []
 
     def __init__(self, strategy_id: str, setting: dict | None = None):
         """
@@ -48,11 +47,11 @@ class SimStrategyBase:
         # 组合状态
         self.capital = 1_000_000  # 初始资金（可配置）
         self.cash = 1_000_000
-        self.positions: Dict[str, dict] = {}  # {ts_code: {"volume": x, "avg_price": y}}
+        self.positions: dict[str, dict] = {}  # {ts_code: {"volume": x, "avg_price": y}}
         self.current_date: str = ""
 
         # 信号队列（引擎取走后清空）
-        self._signals: List[Signal] = []
+        self._signals: list[Signal] = []
 
         # 从 setting 中提取声明过的参数（使用默认值兜底）
         for param in self.parameters:
@@ -73,7 +72,7 @@ class SimStrategyBase:
         """策略初始化：在第一次 on_bars 前调用"""
         self.inited = True
 
-    def on_bars(self, date: str, bars: Dict[str, BarData]) -> None:
+    def on_bars(self, date: str, bars: dict[str, BarData]) -> None:
         """每日全市场数据回调
 
         Args:
@@ -92,7 +91,7 @@ class SimStrategyBase:
         """发出卖出信号"""
         self._signals.append(Signal(ts_code, "sell", price, volume))
 
-    def get_signals(self) -> List[Signal]:
+    def get_signals(self) -> list[Signal]:
         """供引擎调用的信号提取 + 清空"""
         signals = self._signals[:]
         self._signals.clear()

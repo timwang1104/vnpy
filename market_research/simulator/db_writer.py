@@ -13,7 +13,6 @@ import threading
 import time
 from pathlib import Path
 from queue import Empty, Queue
-from typing import List, Tuple
 
 # 默认数据库路径（相对项目根目录）
 _DEFAULT_SIM_DB = str(
@@ -193,7 +192,7 @@ class DBWriter:
     def flush(self) -> None:
         """强制刷入队列中所有待写入数据（同步等待）"""
         # 先 drain 队列到临时列表
-        items: List[Tuple[str, tuple]] = []
+        items: list[tuple[str, tuple]] = []
         while True:
             try:
                 items.append(self._queue.get_nowait())
@@ -215,7 +214,7 @@ class DBWriter:
             time.sleep(self.flush_interval)
             self.flush()
 
-    def _do_flush(self, items: List[Tuple[str, tuple]]) -> None:
+    def _do_flush(self, items: list[tuple[str, tuple]]) -> None:
         """执行批量写入"""
         if not items:
             return

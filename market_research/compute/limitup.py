@@ -31,6 +31,14 @@ def compute_limitup(db: sqlite3.Connection, date: str) -> dict:
         (date,),
     )
     rows = cur.fetchall()
+    return _aggregate_limitup(date, rows)
+
+
+def _aggregate_limitup(date: str, rows: list[tuple]) -> dict:
+    """纯函数：将 limit_up_pool 原始行聚合为前端 schema。
+
+    rows 字段顺序: ts_code, name, industry, limit_times, first_time, last_time, fd_amount, limit
+    """
 
     if not rows:
         return {
@@ -104,11 +112,22 @@ def compute_limitup(db: sqlite3.Connection, date: str) -> dict:
 def compute_limitup_history(
     db: sqlite3.Connection,
 ) -> Iterable[tuple[str, dict]]:
-    """迭代全部 DISTINCT trade_date，逐日 yield (date, dict)。
+    """批量查询全部交易日数据，逐日 yield (date, dict)。
 
+    N 次日历查询合并为 1 次 SQL + Python 分组，大幅减少 DB 往返。
     builder 用此遍历写分片。
     """
     cur = db.cursor()
-    cur.execute("SELECT DISTINCT trade_date FROM limit_up_pool ORDER BY trade_date")
-    for (date_str,) in cur.fetchall():
-        yield (date_str, compute_limitup(db, date_str))
+    cur.execute(
+        "SELECT trade_date, ts_code, name, industry, limit_times, first_time, last_time, "
+        'fd_amount, "limit" '
+        "FROM limit_up_pool ORDER BY trade_date, limit_times DESC, amount DESC"
+    )
+    rows = cur.fetchall()
+
+    # Python 分组
+    from itertools import groupby
+
+    for date_str, group in groupby(rows, key=lambda r: r[0]):
+        group_rows = [r[1:] for r in group]  # strip trade_date
+        yield (date_str, _aggregate_limitup(date_str, group_rows))
