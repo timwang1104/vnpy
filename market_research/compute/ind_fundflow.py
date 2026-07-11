@@ -54,8 +54,8 @@ def compute_ind_fundflow(db: sqlite3.Connection, window: int = 240) -> dict:
     placeholders = ",".join("'" + c + "'" for c in white_codes)
     cur.execute(
         "SELECT trade_date, ts_code, name, pct_change, close, buy_md_amount "
-        "FROM ind_fundflow WHERE content_type='行业' "
-        f"AND ts_code IN ({placeholders}) "
+        "FROM ind_fundflow "
+        f"WHERE ts_code IN ({placeholders}) "
         "ORDER BY ts_code, trade_date"
     )
     rows = cur.fetchall()

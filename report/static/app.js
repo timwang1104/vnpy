@@ -31,7 +31,7 @@
   // ==================== 工具函数 ====================
   function fmt(d) { return d.slice(0,4)+'-'+d.slice(4,6)+'-'+d.slice(6,8); }
   function loadJson(path) {
-    return fetch(path).then(r => {
+    return fetch(path + (path.includes('?') ? '&' : '?') + 't=' + Date.now()).then(r => {
       if (!r.ok) throw new Error('HTTP '+r.status+' '+path);
       return r.json();
     });
@@ -142,39 +142,60 @@
 
     if (!UPDATE_BTN) return;
 
-    UPDATE_BTN.addEventListener('click', triggerUpdate);
+    // 单击按钮：
+    //   - 空闲 → 启动更新（后台，不弹框）
+    //   - 运行中 → 打开日志框查看进度
+    //   - 已完成/失败 → 打开日志框查看详情
+    UPDATE_BTN.addEventListener('click', onUpdateBtnClick);
     document.getElementById('update-modal-close').addEventListener('click', closeUpdateModal);
     document.getElementById('update-modal-close-btn').addEventListener('click', closeUpdateModal);
     if (UPDATE_RELOAD) UPDATE_RELOAD.addEventListener('click', function () { location.reload(); });
 
-    // Check if already running (e.g. triggered by cron or another tab)
-    fetchUpdateStatus();
-    setInterval(fetchUpdateStatus, 30000); // check every 30s
+    // 轮询检测其它标签页触发的更新
+    pollRunningUpdate();
   }
 
-  async function fetchUpdateStatus() {
+  function onUpdateBtnClick() {
+    if (UPDATE_BTN.disabled) {
+      // 正在运行 → 打开日志框
+      openUpdateModal();
+      return;
+    }
+    // 空闲或已完成 → 启动新更新（后台，不弹框）
+    triggerUpdate();
+  }
+
+  async function pollRunningUpdate() {
     try {
       var resp = await fetch('/api/data/update/status');
       var state = await resp.json();
       if (state.status === 'running') {
         setUpdateBtnState('running');
-        openUpdateModal();
-        connectUpdateSSE();
+        connectUpdateSSE();  // 后台监听完成事件
       }
-    } catch (e) { /* server may not support update endpoint */ }
+    } catch (e) { /* server 可能不支持该端点 */ }
+    // 每 30 秒再检查一次
+    setTimeout(pollRunningUpdate, 30000);
+  }
+
+  function showUpdateToast(msg, type) {
+    var t = document.createElement('div');
+    t.className = 'update-toast' + (type ? ' ' + type : '');
+    t.textContent = msg;
+    document.body.appendChild(t);
+    setTimeout(function () { if (t.parentNode) t.parentNode.removeChild(t); }, 3000);
   }
 
   async function triggerUpdate() {
-    if (UPDATE_BTN.disabled) return;
     setUpdateBtnState('running');
     UPDATE_BADGE.textContent = '⏳ 运行中';
     UPDATE_BADGE.className = 'update-badge running';
-    if (UPDATE_PROGRESS) {
-      UPDATE_PROGRESS.className = 'update-progress-fill running';
-    }
+    if (UPDATE_PROGRESS) UPDATE_PROGRESS.className = 'update-progress-fill running';
     UPDATE_LOG.textContent = '';
     UPDATE_RELOAD.style.display = 'none';
-    openUpdateModal();
+
+    // 后台启动，不弹模态框
+    showUpdateToast('🔄 更新已启动，后台运行中', 'info');
 
     try {
       var resp = await fetch('/api/data/update', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ build: true }) });
@@ -185,6 +206,7 @@
         UPDATE_BADGE.textContent = '✗ 失败';
         UPDATE_BADGE.className = 'update-badge error';
         if (UPDATE_PROGRESS) UPDATE_PROGRESS.className = 'update-progress-fill error';
+        showUpdateToast('✗ 更新启动失败', 'error');
         return;
       }
       connectUpdateSSE();
@@ -194,6 +216,7 @@
       UPDATE_BADGE.textContent = '✗ 失败';
       UPDATE_BADGE.className = 'update-badge error';
       if (UPDATE_PROGRESS) UPDATE_PROGRESS.className = 'update-progress-fill error';
+      showUpdateToast('✗ 更新请求失败', 'error');
     }
   }
 
@@ -211,6 +234,7 @@
       if (UPDATE_PROGRESS) UPDATE_PROGRESS.className = 'update-progress-fill done';
       if (UPDATE_RELOAD) UPDATE_RELOAD.style.display = 'inline-block';
       evtSource.close();
+      showUpdateToast('✅ 更新完成', 'success');
     });
 
     evtSource.addEventListener('error', function () {
@@ -220,6 +244,7 @@
       if (UPDATE_PROGRESS) UPDATE_PROGRESS.className = 'update-progress-fill error';
       if (UPDATE_RELOAD) UPDATE_RELOAD.style.display = 'inline-block';
       evtSource.close();
+      showUpdateToast('✗ 更新失败', 'error');
     });
   }
 
