@@ -1922,13 +1922,30 @@
     var container = document.getElementById('chat-messages');
     if (!container) return;
 
-    // Find the last agent message
-    var msgs = container.querySelectorAll('.chat-msg.agent');
-    var lastMsg = msgs[msgs.length - 1];
-    if (!lastMsg) return;
+    // Find the last agent message content element
+    var contents = container.querySelectorAll('.chat-msg.agent .chat-msg-content');
+    var contentEl = contents[contents.length - 1];
 
-    var contentEl = lastMsg.querySelector('.chat-msg-content');
-    if (!contentEl) return;
+    if (!contentEl) {
+      // First chunk: the typing indicator (.chat-msg.agent) has no
+      // .chat-msg-content, so appendChatMessage never sees text.
+      // Replace the typing indicator with a proper agent message.
+      hideChatTyping();
+      // Hide welcome message
+      var welcome = container.querySelector('.chat-welcome');
+      if (welcome) welcome.style.display = 'none';
+
+      var div = document.createElement('div');
+      div.className = 'chat-msg agent agent-' + STATE.chatAgent;
+      var badge = document.createElement('span');
+      badge.className = 'chat-msg-agent-badge';
+      badge.textContent = STATE.chatAgent === 'claude' ? 'CLAUDE' : 'HERMES';
+      div.appendChild(badge);
+      contentEl = document.createElement('div');
+      contentEl.className = 'chat-msg-content';
+      div.appendChild(contentEl);
+      container.appendChild(div);
+    }
 
     contentEl.textContent += text;
     container.scrollTop = container.scrollHeight;
