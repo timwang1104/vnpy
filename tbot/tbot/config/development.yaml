@@ -1,0 +1,3 @@
+# 开发环境覆盖
+database:
+  data_dir: data
