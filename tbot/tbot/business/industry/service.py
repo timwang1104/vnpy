@@ -45,10 +45,13 @@ class IndustryService:
         """
         conn = self._db._mgr.get_overview()
         try:
-            # --- 1. 白名单（20250902 截面）---
+            # --- 1. 白名单（取最新交易日截面）---
             result = conn.execute(
                 "SELECT DISTINCT ts_code, name FROM ind_fundflow "
-                "WHERE content_type='行业' AND trade_date='20250902' ORDER BY name"
+                "WHERE content_type='行业' "
+                "AND trade_date = ("
+                "  SELECT max(trade_date) FROM ind_fundflow WHERE content_type='行业'"
+                ") ORDER BY name"
             )
             whitelist: dict[str, str] = dict(result.fetchall())
             white_codes = set(whitelist)
@@ -73,10 +76,13 @@ class IndustryService:
                 "tables": {},
             }
 
-        # --- 3. 构 panel / by_date ---
+        # --- 3. 构 panel / by_date（处理 DuckDB VARCHAR→float 转换）---
         panel: dict[str, list[tuple[str, float, float, float]]] = defaultdict(list)
         for d, c, _nm, pc, cl, md in rows:
-            panel[c].append((d, pc, cl, md))
+            pc_f = float(pc) if pc is not None else 0.0
+            cl_f = float(cl) if cl is not None else 0.0
+            md_f = float(md) if md is not None else 0.0
+            panel[c].append((d, pc_f, cl_f, md_f))
 
         by_date: dict[str, list[tuple[str, float, float, float, str]]] = defaultdict(list)
         for code, seq in panel.items():
@@ -161,7 +167,6 @@ class IndustryService:
             "ic1_total_5d": round(ic1_total, 4) if ic1_total is not None else None,
             "ic3_total_5d": round(ic3_total, 4) if ic3_total is not None else None,
             "whitelist_size": len(whitelist),
-            "cutover_date": "20250903",
         }
 
         return {
@@ -235,7 +240,7 @@ class IndustryService:
         self,
         code: str,
         mode: str = "pct",
-    ) -> list[dict[str, Any]]:
+    ) -> dict[str, Any]:
         """行业板块资金流时序。
 
         Parameters
@@ -252,37 +257,100 @@ class IndustryService:
 
         Returns
         -------
-        list[dict]
+        dict
+            ``{dates: [...], values: [...], close: [...], pct_change: [...],
+              meta: {mode_label, date_min, date_max}, name: str}``
         """
         raw = self._db.get_ind_fundflow_raw(code, "行业")
         if not raw:
-            return []
+            return {
+                "dates": [],
+                "values": [],
+                "close": [],
+                "pct_change": [],
+                "meta": {"mode_label": "", "date_min": "", "date_max": ""},
+                "name": code,
+            }
 
+        # 获取行业名称
+        name = self._get_industry_name(code)
+
+        # 将原始数据按 mode 转成 columnar 格式
+        mode_key: str
+        mode_label: str
         if mode == "raw":
-            return [
-                {
-                    "date": r["trade_date"],
-                    "buy_md_amount": r["buy_md_amount"],
-                    "pct_change": r["pct_change"],
-                    "close": r["close"],
+            mode_key = "buy_md_amount"
+            mode_label = "资金流净额"
+        elif mode == "pct":
+            mode_key = "pct_change"
+            mode_label = "涨跌幅（%）"
+        elif mode == "buy_md":
+            mode_key = "buy_md_amount"
+            mode_label = "资金流净额"
+        elif mode == "close":
+            mode_key = "close"
+            mode_label = "收盘价"
+        elif mode == "share":
+            share_series = self._compute_share_series(raw)
+            if share_series:
+                dates = [r["date"] for r in share_series]
+                values = [r["share"] for r in share_series]
+                return {
+                    "dates": dates,
+                    "values": values,
+                    "close": [],
+                    "pct_change": [],
+                    "meta": {
+                        "mode_label": "资金流占比",
+                        "date_min": dates[0] if dates else "",
+                        "date_max": dates[-1] if dates else "",
+                    },
+                    "name": name,
                 }
-                for r in raw
-            ]
+            return {
+                "dates": [],
+                "values": [],
+                "close": [],
+                "pct_change": [],
+                "meta": {"mode_label": "资金流占比", "date_min": "", "date_max": ""},
+                "name": name,
+            }
+        else:
+            msg = f"Unknown mode: {mode!r} (raw/pct/buy_md/close/share)"
+            raise ValueError(msg)
 
-        if mode == "pct":
-            return [{"date": r["trade_date"], "pct_change": r["pct_change"]} for r in raw]
+        dates = [r["trade_date"] for r in raw]
+        values = [_to_float(r.get(mode_key)) for r in raw]
+        close_vals = [_to_float(r.get("close")) for r in raw]
+        pct_vals = [_to_float(r.get("pct_change")) for r in raw]
 
-        if mode == "buy_md":
-            return [{"date": r["trade_date"], "buy_md_amount": r["buy_md_amount"]} for r in raw]
+        return {
+            "dates": dates,
+            "values": values,
+            "close": close_vals,
+            "pct_change": pct_vals,
+            "meta": {
+                "mode_label": mode_label,
+                "date_min": dates[0] if dates else "",
+                "date_max": dates[-1] if dates else "",
+            },
+            "name": name,
+        }
 
-        if mode == "close":
-            return [{"date": r["trade_date"], "close": r["close"]} for r in raw]
-
-        if mode == "share":
-            return self._compute_share_series(raw)
-
-        msg = f"Unknown mode: {mode!r} (raw/pct/buy_md/close/share)"
-        raise ValueError(msg)
+    def _get_industry_name(self, code: str) -> str:
+        """从白名单查询行业名称。"""
+        conn = self._db._mgr.get_overview()
+        try:
+            result = conn.execute(
+                "SELECT DISTINCT name FROM ind_fundflow "
+                "WHERE content_type='行业' AND ts_code=? LIMIT 1",
+                [code],
+            ).fetchone()
+            return result[0] if result else code
+        except Exception:
+            return code
+        finally:
+            conn.close()
 
     def get_anomalies(
         self,
@@ -344,3 +412,13 @@ class IndustryService:
             {meta, kpi, series, tables} — 同 ind_fundflow 输出 schema。
         """
         return self._compute(window=window)
+
+
+def _to_float(v: object) -> float | None:
+    """将 DuckDB 可能返回的 VARCHAR / None 转换为 float 或 None。"""
+    if v is None:
+        return None
+    try:
+        return float(v)
+    except (ValueError, TypeError):
+        return None

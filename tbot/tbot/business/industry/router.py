@@ -55,7 +55,7 @@ def get_timeseries(
         description="返回值类型: raw=全字段, pct=涨跌幅, buy_md=资金流, close=收盘价, share=占比",
     ),
     svc: IndustryService = Depends(get_industry_service),
-) -> list[dict[str, Any]]:
+) -> dict[str, Any]:
     """行业板块资金流时序（单行业）。
 
     返回指定行业的资金流净额 / 涨跌幅 / 收盘价历史。
