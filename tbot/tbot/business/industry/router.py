@@ -78,11 +78,14 @@ def get_anomalies(
         description="最大返回条数（default 10, max 100）",
     ),
     svc: IndustryService = Depends(get_industry_service),
-) -> list[dict[str, Any]]:
+) -> dict[str, Any]:
     """检测资金流异常行业。
 
     基于最近 60 个交易日的资金流占比，
     将占比绝对值超过阈值（``threshold × mean(|share|)``）的行业判定为异常，
     按异常程度降序排列。
+
+    返回格式: {threshold, limit, total_anomalies, total_industries,
+               anomalies: [{ts_code, name, latest_zscore, share}]}
     """
     return svc.get_anomalies(threshold, limit)

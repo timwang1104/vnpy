@@ -17,6 +17,7 @@ from tbot.engines.compute.service import (
     daily_share,
     ic_series,
     quintile_perf,
+    rolling_zscore,
     smoothed_share,
     total_ic,
 )
@@ -205,7 +206,10 @@ class IndustryService:
             return []
 
         dates = [r["trade_date"] for r in code_raw]
-        code_md = {r["trade_date"]: r["buy_md_amount"] for r in code_raw}
+        code_md: dict[str, float] = {
+            r["trade_date"]: _to_float(r["buy_md_amount"]) or 0.0
+            for r in code_raw
+        }
 
         conn = self._db._mgr.get_overview()
         try:
@@ -220,7 +224,7 @@ class IndustryService:
 
         by_date: dict[str, list[tuple[str, float]]] = defaultdict(list)
         for d, c, md in all_rows:
-            by_date[d].append((c, md))
+            by_date[d].append((c, _to_float(md) or 0.0))
 
         out: list[dict[str, Any]] = []
         for d in dates:
@@ -295,11 +299,13 @@ class IndustryService:
             if share_series:
                 dates = [r["date"] for r in share_series]
                 values = [r["share"] for r in share_series]
+                close_vals = [_to_float(r.get("close")) for r in raw]
+                pct_vals = [_to_float(r.get("pct_change")) for r in raw]
                 return {
                     "dates": dates,
                     "values": values,
-                    "close": [],
-                    "pct_change": [],
+                    "close": close_vals,
+                    "pct_change": pct_vals,
                     "meta": {
                         "mode_label": "资金流占比",
                         "date_min": dates[0] if dates else "",
@@ -313,6 +319,25 @@ class IndustryService:
                 "close": [],
                 "pct_change": [],
                 "meta": {"mode_label": "资金流占比", "date_min": "", "date_max": ""},
+                "name": name,
+            }
+        elif mode == "zscore":
+            raw_values = [_to_float(r.get("buy_md_amount")) for r in raw]
+            values = rolling_zscore(raw_values, window=60)
+            mode_label = "Z-score（60日滚动）"
+            dates = [r["trade_date"] for r in raw]
+            close_vals = [_to_float(r.get("close")) for r in raw]
+            pct_vals = [_to_float(r.get("pct_change")) for r in raw]
+            return {
+                "dates": dates,
+                "values": values,
+                "close": close_vals,
+                "pct_change": pct_vals,
+                "meta": {
+                    "mode_label": mode_label,
+                    "date_min": dates[0] if dates else "",
+                    "date_max": dates[-1] if dates else "",
+                },
                 "name": name,
             }
         else:
@@ -356,7 +381,7 @@ class IndustryService:
         self,
         threshold: float = 2.0,
         limit: int = 10,
-    ) -> list[dict[str, Any]]:
+    ) -> dict[str, Any]:
         """检测资金流异常行业。
 
         以最近 60 个交易日的资金流占比为样本，
@@ -372,31 +397,54 @@ class IndustryService:
 
         Returns
         -------
-        list[dict]
-            每项含 {name, code, share, z_score}。
+        dict
+            {threshold, limit, total_anomalies, total_industries,
+             anomalies: [{ts_code, name, latest_zscore, share}]}
         """
         report = self._compute(window=60)
         ranking = report.get("tables", {}).get("last_ranking", [])
+        total_industries = len(ranking)
+
         if not ranking:
-            return []
+            return {
+                "threshold": threshold,
+                "limit": limit,
+                "total_anomalies": 0,
+                "total_industries": total_industries,
+                "anomalies": [],
+            }
 
         abs_shares = [abs(s["share"]) for s in ranking]
         mean_abs = sum(abs_shares) / len(abs_shares) if abs_shares else 0.0
         if mean_abs == 0.0:
-            return []
-
-        anomalies = [s for s in ranking if abs(s["share"]) > threshold * mean_abs]
-        anomalies.sort(key=lambda x: abs(x["share"]), reverse=True)
-
-        return [
-            {
-                "name": a["name"],
-                "code": a["code"],
-                "share": a["share"],
-                "z_score": round(a["share"] / mean_abs, 4),
+            return {
+                "threshold": threshold,
+                "limit": limit,
+                "total_anomalies": 0,
+                "total_industries": total_industries,
+                "anomalies": [],
             }
-            for a in anomalies[:limit]
+
+        raw_anomalies = [s for s in ranking if abs(s["share"]) > threshold * mean_abs]
+        raw_anomalies.sort(key=lambda x: abs(x["share"]), reverse=True)
+
+        anomalies = [
+            {
+                "ts_code": a["code"],
+                "name": a["name"],
+                "latest_zscore": round(a["share"] / mean_abs, 4),
+                "share": a["share"],
+            }
+            for a in raw_anomalies[:limit]
         ]
+
+        return {
+            "threshold": threshold,
+            "limit": limit,
+            "total_anomalies": len(anomalies),
+            "total_industries": total_industries,
+            "anomalies": anomalies,
+        }
 
     def get_full_report(self, window: int = 240) -> dict[str, Any]:
         """完整行业资金流信号报告。
