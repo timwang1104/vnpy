@@ -74,10 +74,99 @@
   <!-- Tab 内容 (由各 page 模块注入) -->
   <main id="main-content">
     <section id="industry" class="tab-content active"></section>
-    <section id="limitup" class="tab-content"></section>
+    <section id="limitup" class="tab-content">
+      <div class="date-row">
+        <button id="btn-prev-day" class="btn">‹ 上一日</button>
+        <div class="date-picker" id="date-picker">
+          <span id="limitup-current-date" class="current-date dp-trigger">—</span>
+          <div class="dp-popup hidden" id="dp-popup">
+            <div class="dp-header">
+              <button class="dp-nav" id="dp-prev-month" type="button">‹</button>
+              <span id="dp-month-year">—</span>
+              <button class="dp-nav" id="dp-next-month" type="button">›</button>
+            </div>
+            <div class="dp-weekdays"><span>日</span><span>一</span><span>二</span><span>三</span><span>四</span><span>五</span><span>六</span></div>
+            <div class="dp-days" id="dp-days"></div>
+          </div>
+        </div>
+        <button id="btn-next-day" class="btn">下一日 ›</button>
+      </div>
+      <div class="chart-box">
+        <h3>涨停概况</h3>
+        <div id="limitup-day-content"></div>
+      </div>
+      <div class="chart-box">
+        <h3>概念聚合（力导向图）
+          <button id="btn-generate-concept" class="btn btn-sm" style="margin-left:12px">🤖 生成概念图</button>
+          <span id="concept-gen-status" class="text-muted" style="margin-left:8px;font-size:12px"></span>
+        </h3>
+        <div id="chart-concept-graph" class="chart-container" style="height:500px"></div>
+      </div>
+      <div class="chart-box">
+        <h3>连板高度时序</h3>
+        <div id="chart-limitup" class="chart-container" style="height:200px"></div>
+      </div>
+    </section>
     <section id="fundflow" class="tab-content"></section>
     <section id="simulator" class="tab-content"></section>
-    <section id="updater" class="tab-content"></section>
+    <section id="updater" class="tab-content">
+      <div class="chart-box">
+        <h3>数据更新</h3>
+        <div class="updater-status-row">
+          <div class="updater-status-item">
+            <span class="updater-label">状态</span>
+            <span id="upd-status" class="updater-value upd-status-idle">就绪</span>
+          </div>
+          <div class="updater-status-item">
+            <span class="updater-label">开始时间</span>
+            <span id="upd-started" class="updater-value">—</span>
+          </div>
+          <div class="updater-status-item">
+            <span class="updater-label">耗时</span>
+            <span id="upd-elapsed" class="updater-value">—</span>
+          </div>
+          <div class="updater-status-item">
+            <span class="updater-label">进度</span>
+            <span id="upd-progress-label" class="updater-value">—</span>
+          </div>
+        </div>
+        <div id="upd-progress-bar" class="update-progress-bar">
+          <div id="upd-progress-fill" class="update-progress-fill"></div>
+        </div>
+        <div class="updater-actions">
+          <button id="upd-trigger-btn" class="btn btn-primary">🔄 启动更新</button>
+          <button id="upd-reload-btn" class="btn" style="display:none">🔄 刷新页面</button>
+        </div>
+        <div id="upd-last-results" class="updater-results" style="margin-top:12px"></div>
+      </div>
+
+      <div class="chart-box">
+        <h3>定时任务</h3>
+        <div class="updater-status-row">
+          <div class="updater-status-item">
+            <span class="updater-label">状态</span>
+            <span id="upd-cron-status" class="updater-value">检查中…</span>
+          </div>
+          <div class="updater-status-item">
+            <span class="updater-label">表达式</span>
+            <span id="upd-cron-expr" class="updater-value">30 18 * * 1-5</span>
+          </div>
+          <div class="updater-status-item">
+            <span class="updater-label">说明</span>
+            <span class="updater-value">周一到周五 18:30</span>
+          </div>
+        </div>
+        <div class="updater-actions">
+          <button id="upd-cron-install" class="btn">注册定时任务</button>
+          <button id="upd-cron-remove" class="btn">移除定时任务</button>
+        </div>
+      </div>
+
+      <div class="chart-box">
+        <h3>更新日志</h3>
+        <pre id="upd-log-output" class="update-log"></pre>
+      </div>
+    </section>
   </main>
 </div>
 
