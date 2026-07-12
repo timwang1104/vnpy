@@ -23,8 +23,10 @@ from tbot.business.data_update.cron import (
 from tbot.business.data_update.updater import (
     get_log_lines,
     get_status as _updater_status,
+    register_completion_callback,
     register_log_callback,
     run_update as _run_update,
+    unregister_completion_callback,
     unregister_log_callback,
 )
 
@@ -40,35 +42,53 @@ class _SSESubscriber:
 
     接收来自 updater 模块回调（后台线程）的日志行，
     通过 asyncio.Queue + loop.call_soon_threadsafe 桥接到 SSE async generator。
+    支持推送命名事件（complete / error）供 EventSource.addEventListener 消费。
 
     用法:
         sub = _SSESubscriber(loop)
         register_log_callback(sub)
+        register_completion_callback(sub)  # 注册完成回调
         async for line in sub.stream():
             ...
         unregister_log_callback(sub)
+        unregister_completion_callback(sub)
         sub.close()
     """
 
     def __init__(self, loop: asyncio.AbstractEventLoop) -> None:
-        self._queue: asyncio.Queue[str] = asyncio.Queue()
+        self._queue: asyncio.Queue[tuple[str, str]] = asyncio.Queue()
         self._loop = loop
 
     def __call__(self, line: str) -> None:
-        """updater 回调入口（后台线程调用）。"""
-        self._loop.call_soon_threadsafe(self._queue.put_nowait, line)
+        """updater 回调入口（后台线程调用）。向队列推送普通日志行。"""
+        self._loop.call_soon_threadsafe(
+            self._queue.put_nowait, ("message", line)
+        )
+
+    def send_event(self, event_type: str, data: str = "") -> None:
+        """推送一个命名 SSE 事件（如 complete / error）。"""
+        self._loop.call_soon_threadsafe(
+            self._queue.put_nowait, (event_type, data)
+        )
 
     def close(self) -> None:
         """发送哨兵值，让 stream() 退出。"""
-        self._loop.call_soon_threadsafe(self._queue.put_nowait, "")
+        self._loop.call_soon_threadsafe(self._queue.put_nowait, ("", ""))
 
     async def stream(self) -> AsyncGenerator[str, None]:
-        """异步生成 SSE data 行（每行以 "data: ..." 开头），由 StreamingResponse 消费。"""
+        """异步生成 SSE 行，由 StreamingResponse 消费。
+
+        普通日志行（event_type="message"）以 "data: ..." 格式输出；
+        命名事件（event_type="complete" 等）输出 "event: ...\ndata: ..." 格式。
+        """
         while True:
-            line = await self._queue.get()
-            if not line:  # 空串 = 哨兵
+            event_type, data = await self._queue.get()
+            if not event_type:  # 空串 = 哨兵
                 break
-            yield f"data: {line}\n\n"
+            if event_type == "message":
+                yield f"data: {data}\n\n"
+            else:
+                yield f"event: {event_type}\ndata: {data}\n\n"
 
 
 # ---------------------------------------------------------------------------
@@ -136,6 +156,9 @@ class DataUpdateService:
     def create_sse(self, loop: asyncio.AbstractEventLoop) -> _SSESubscriber:
         """创建并注册 SSE 订阅者。
 
+        同时注册日志回调和完成回调。完成回调在更新完成或出错时
+        向 SSE 流推送命名事件（complete / error）。
+
         Parameters
         ----------
         loop : asyncio.AbstractEventLoop
@@ -144,11 +167,16 @@ class DataUpdateService:
         """
         sub = _SSESubscriber(loop)
         register_log_callback(sub)
+        # 存储 bound method 引用以确保 unregister 时能正确匹配
+        sub._completion_cb = sub.send_event
+        register_completion_callback(sub._completion_cb)
         return sub
 
     def close_sse(self, sub: _SSESubscriber) -> None:
         """注销并关闭 SSE 订阅者。"""
         unregister_log_callback(sub)
+        if hasattr(sub, "_completion_cb"):
+            unregister_completion_callback(sub._completion_cb)
         sub.close()
 
     # ── Cron 管理 ────────────────────────────────────────────────────

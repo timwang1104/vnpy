@@ -28,8 +28,9 @@ def generate(body: dict[str, Any]) -> dict[str, Any]:
     Returns:
         包装响应::
 
-            {"code": 0, "message": "ok", "data": {graph_dict}}
-            {"code": 404, "message": "无数据", "data": None}
+            失败: {"status": "error", "message": "..."}
+            无数据: {"status": "ok", "n_concepts": 0}
+            成功: {"status": "ok", "n_concepts": N, "date": "YYYYMMDD", "data": {...}}
     """
     svc = ConceptClusterService(ai=AIService())
     result = svc.cluster(
@@ -37,5 +38,12 @@ def generate(body: dict[str, Any]) -> dict[str, Any]:
         mode=body.get("mode", "full"),
     )
     if result is None:
-        return {"code": 404, "message": "无数据", "data": None}
-    return {"code": 0, "message": "ok", "data": result}
+        return {"status": "ok", "n_concepts": 0}
+    graph_date = result.get("meta", {}).get("date", "")
+    n_concepts = len(result.get("concepts", []))
+    return {
+        "status": "ok",
+        "n_concepts": n_concepts,
+        "date": graph_date,
+        "data": result,
+    }

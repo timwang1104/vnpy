@@ -123,7 +123,7 @@ def _aggregate_limitup(date: str, rows: list[tuple]) -> dict[str, Any]:
     break_cnt = sum(1 for r in rows if r[7] == "Z")
     down_cnt = sum(1 for r in rows if r[7] == "D")
     all_limit_times = [
-        int(r[3]) for r in rows if r[3] is not None and r[7] == "U"
+        int(float(r[3])) for r in rows if r[3] is not None and r[3] != "" and r[7] == "U"
     ]
     max_lt = max(all_limit_times) if all_limit_times else 0
 
@@ -132,7 +132,7 @@ def _aggregate_limitup(date: str, rows: list[tuple]) -> dict[str, Any]:
     for r in rows:
         if r[7] != "U":
             continue
-        lt = int(r[3]) if r[3] is not None else 0
+        lt = int(float(r[3])) if r[3] is not None and r[3] != "" else 0
         tiers[lt].append(
             {
                 "ts_code": r[0],
@@ -140,7 +140,7 @@ def _aggregate_limitup(date: str, rows: list[tuple]) -> dict[str, Any]:
                 "industry": r[2] or "",
                 "first_time": r[4] or "",
                 "last_time": r[5] or "",
-                "fd_amount": r[6] if r[6] is not None else 0,
+                "fd_amount": float(r[6]) if r[6] is not None and r[6] != "" else 0,
             }
         )
 

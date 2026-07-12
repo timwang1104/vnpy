@@ -90,6 +90,16 @@ def main(argv: list[str] | None = None) -> None:
         default=None,
         help="仅迁移指定表（默认迁移所有已知表）",
     )
+    dm.add_argument(
+        "--daily-bars-source",
+        default=None,
+        help="日线行情 SQLite 源文件路径（默认 data/history.db）；传入后同时迁移 daily_bars",
+    )
+    dm.add_argument(
+        "--skip-daily-bars",
+        action="store_true",
+        help="跳过 daily_bars 迁移",
+    )
 
     args = parser.parse_args(argv)
 
@@ -173,11 +183,10 @@ def _run_report(args) -> None:
     from tbot.report_builder import ReportBuilder
 
     if args.report_command == "build":
-        db_path = args.db_path or _guess_tushare_db()
         out_dir = args.out_dir or "report"
         builder = ReportBuilder()
         result = builder.build(
-            db_path=db_path,
+            db_path=args.db_path,  # kept for backward compat, ignored
             out_dir=out_dir,
             window=args.window,
             concept=args.concept_graph,
@@ -436,8 +445,23 @@ def _run_db_migrate(args) -> None:
         sys.exit(1)
 
     print(f"[tbot] 迁移: {source_path} → {data_dir}/")
-
     _migrate_sqlite_to_duckdb(source_path, data_dir, args.tables)
+
+    # 同时迁移 daily_bars（如果指定了来源且未跳过）
+    if args.skip_daily_bars:
+        print("[tbot] 已跳过 daily_bars 迁移")
+    else:
+        daily_src = args.daily_bars_source
+        if daily_src is None:
+            daily_src = str(
+                Path(__file__).resolve().parent.parent.parent / "data" / "history.db"
+            )
+        daily_path = Path(daily_src)
+        if daily_path.exists():
+            print(f"[tbot] 迁移 daily_bars: {daily_path} → {data_dir}/")
+            _migrate_daily_bars(daily_path, data_dir)
+        else:
+            print(f"[tbot] 未找到 daily_bars 源文件: {daily_path}（跳过日线迁移）")
 
 
 def _migrate_sqlite_to_duckdb(
@@ -501,23 +525,29 @@ def _migrate_sqlite_to_duckdb(
                     # 获取列名
                     col_names = [desc[0] for desc in src_cur.description]
 
-                    # 在 DuckDB 中创建表并写入
-                    placeholders = ", ".join(f'"{c}"' for c in col_names)
-                    dst_conn.execute(f"DROP TABLE IF EXISTS [{table}]")
+                    # 在 DuckDB 中创建表（所有列用 VARCHAR 类型，DuckDB 自动推断）
+                    col_defs = ", ".join(f'"{c}" VARCHAR' for c in col_names)
+                    dst_conn.execute(f'DROP TABLE IF EXISTS "{table}"')
                     dst_conn.execute(
-                        f"CREATE TABLE [{table}] ({placeholders})"
+                        f'CREATE TABLE "{table}" ({col_defs})'
                     )
 
-                    # 逐行写入（批量 INSERT 更高效，但数据量不大时 fine）
+                    # 批量写入（每 2000 行一批）
+                    BATCH = 2000
                     inserted = 0
-                    for row in rows:
-                        vals = ", ".join(
-                            _duckdb_literal(v) for v in row
-                        )
+                    for batch_start in range(0, len(rows), BATCH):
+                        batch = rows[batch_start:batch_start + BATCH]
+                        values_list: list[str] = []
+                        for row in batch:
+                            vals = ", ".join(
+                                _duckdb_literal(v) for v in row
+                            )
+                            values_list.append(f"({vals})")
                         dst_conn.execute(
-                            f"INSERT INTO [{table}] VALUES ({vals})"
+                            f'INSERT INTO "{table}" VALUES '
+                            + ",\n".join(values_list)
                         )
-                        inserted += 1
+                        inserted += len(batch)
 
                     print(f"  ✓ {table} ({label}): {inserted} 行")
                 except Exception as e:
@@ -532,6 +562,95 @@ def _migrate_sqlite_to_duckdb(
         pass
 
     print(f"\n[tbot] 迁移完成 → {dst_path}")
+
+
+def _migrate_daily_bars(
+    source: Path,
+    data_dir: str | Path,
+) -> None:
+    """迁移 SQLite history.db -> DuckDB market_a.db 的 daily_bars 表。
+
+    使用批量 INSERT 提高迁移速度，自动分 chunk 写入。
+    """
+    import sqlite3
+    import math
+
+    import duckdb
+
+    data_dir = Path(data_dir)
+    data_dir.mkdir(parents=True, exist_ok=True)
+    dst_path = data_dir / "market_a.db"
+
+    CHUNK = 500_000  # 每批 50 万行
+
+    src_conn = sqlite3.connect(str(source))
+    try:
+        src_cur = src_conn.cursor()
+        src_cur.execute(
+            "SELECT name FROM sqlite_master WHERE type='table' AND name='daily_bars'"
+        )
+        if not src_cur.fetchone():
+            print("  ~ 源库中不存在 daily_bars 表")
+            return
+
+        # 获取总行数
+        src_cur.execute("SELECT count(*) FROM daily_bars")
+        total = src_cur.fetchone()[0]
+        if total == 0:
+            print("  ~ daily_bars 无数据")
+            return
+
+        # 获取列信息
+        src_cur.execute("PRAGMA table_info(daily_bars)")
+        cols = [r[1] for r in src_cur.fetchall()]
+        col_list = ", ".join(f'"{c}"' for c in cols)
+
+        dst_conn = duckdb.connect(str(dst_path))
+        try:
+            dst_conn.execute("SET threads TO 4")
+            dst_conn.execute("DROP TABLE IF EXISTS daily_bars")
+
+            # 用列名建表（所有列用 TEXT 类型，后续写入 DuckDB 自动推断）
+            col_type_pairs = ", ".join(f'"{c}" TEXT' for c in cols)
+            dst_conn.execute(
+                f"CREATE TABLE daily_bars ({col_type_pairs})"
+            )
+
+            offset = 0
+            while offset < total:
+                src_cur.execute(
+                    f"SELECT * FROM daily_bars ORDER BY ts_code, trade_date "
+                    f"LIMIT {CHUNK} OFFSET {offset}"
+                )
+                rows = src_cur.fetchall()
+                if not rows:
+                    break
+
+                # 构造批量 INSERT
+                values_sql: list[str] = []
+                for row in rows:
+                    vals = ", ".join(_duckdb_literal(v) for v in row)
+                    values_sql.append(f"({vals})")
+                dst_conn.execute(
+                    f'INSERT INTO "daily_bars" ({col_list}) VALUES '
+                    + ",\n".join(values_sql)
+                )
+                offset += len(rows)
+                pct = min(100, round(offset / total * 100))
+                print(f"  daily_bars: {offset}/{total} ({pct}%)", end="\r", flush=True)
+
+            print()
+            print(f"  ✓ daily_bars: {total} 行")
+
+            dst_conn.close()
+        finally:
+            pass
+
+        src_conn.close()
+    finally:
+        pass
+
+    print(f"\n[tbot] 日线迁移完成 → {dst_path}")
 
 
 def _duckdb_literal(value: Any) -> str:
@@ -558,13 +677,6 @@ def _duckdb_literal(value: Any) -> str:
 # ═══════════════════════════════════════════════════════════════════════
 # 路径工具
 # ═══════════════════════════════════════════════════════════════════════
-
-
-def _guess_tushare_db() -> str:
-    """按约定推定 tushare.db 路径。"""
-    return str(
-        Path(__file__).resolve().parent.parent.parent / "data" / "tushare.db"
-    )
 
 
 def _resolve_data_dir() -> str:

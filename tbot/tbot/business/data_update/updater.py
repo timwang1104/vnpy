@@ -53,12 +53,23 @@ def _set_status(status: str, error: str | None = None) -> None:
             _state["finished_at"] = datetime.now().isoformat()
             _state["progress"] = {"current": 0, "total": 0, "label": ""}
 
+    # 通知 SSE 完成/错误事件
+    if status in ("completed", "error"):
+        event_type = "complete" if status == "completed" else "error"
+        event_data = error or ""
+        for cb in _COMPLETION_CALLBACKS:
+            try:
+                cb(event_type, event_data)
+            except Exception:
+                pass
+
 
 # ---------------------------------------------------------------------------
 # 日志
 # ---------------------------------------------------------------------------
 
 _LOG_CALLBACKS: list[Callable[[str], None]] = []
+_COMPLETION_CALLBACKS: list[Callable[[str, str], None]] = []
 
 
 def register_log_callback(cb: Callable[[str], None]) -> None:
@@ -68,6 +79,18 @@ def register_log_callback(cb: Callable[[str], None]) -> None:
 def unregister_log_callback(cb: Callable[[str], None]) -> None:
     try:
         _LOG_CALLBACKS.remove(cb)
+    except ValueError:
+        pass
+
+
+def register_completion_callback(cb: Callable[[str, str], None]) -> None:
+    """注册完成回调。cb(event_type, data) — 如 cb('complete', '') 或 cb('error', 'msg')。"""
+    _COMPLETION_CALLBACKS.append(cb)
+
+
+def unregister_completion_callback(cb: Callable[[str, str], None]) -> None:
+    try:
+        _COMPLETION_CALLBACKS.remove(cb)
     except ValueError:
         pass
 

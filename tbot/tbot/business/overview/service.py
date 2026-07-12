@@ -64,14 +64,14 @@ class OverviewService:
 
         if row:
             return {
-                "net_inflow": row[0],
-                "large_inflow": row[1],
-                "mid_inflow": row[2],
-                "small_inflow": row[3],
-                "pct_change_sh": row[4],
-                "pct_change_sz": row[5],
-                "close_sh": row[6],
-                "close_sz": row[7],
+                "net_inflow": _to_float(row[0]),
+                "large_inflow": _to_float(row[1]),
+                "mid_inflow": _to_float(row[2]),
+                "small_inflow": _to_float(row[3]),
+                "pct_change_sh": _to_float(row[4]),
+                "pct_change_sz": _to_float(row[5]),
+                "close_sh": _to_float(row[6]),
+                "close_sz": _to_float(row[7]),
             }
 
         return {
@@ -94,7 +94,7 @@ class OverviewService:
                 '  SUM(CASE WHEN "limit" = \'U\' THEN 1 ELSE 0 END) as up,'
                 '  SUM(CASE WHEN "limit" = \'Z\' THEN 1 ELSE 0 END) as zb,'
                 '  SUM(CASE WHEN "limit" = \'D\' THEN 1 ELSE 0 END) as down,'
-                "  MAX(CASE WHEN \"limit\" = 'U' THEN limit_times ELSE 0 END) as max_lt "
+                "  MAX(CASE WHEN \"limit\" = 'U' THEN CAST(limit_times AS INTEGER) ELSE 0 END) as max_lt "
                 "FROM limit_up_pool WHERE trade_date = ?",
                 [date],
             ).fetchone()
@@ -124,6 +124,16 @@ class OverviewService:
             conn.close()
 
         return [
-            {"date": r[0], "net_amount": r[1], "large_inflow": r[2]}
+            {"date": r[0], "net_amount": _to_float(r[1]), "large_inflow": _to_float(r[2])}
             for r in reversed(rows)
         ]
+
+
+def _to_float(v: object) -> float | None:
+    """将 DuckDB 可能返回的 VARCHAR / None 转换为 float 或 None。"""
+    if v is None:
+        return None
+    try:
+        return float(v)
+    except (ValueError, TypeError):
+        return None
